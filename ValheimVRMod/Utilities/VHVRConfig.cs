@@ -127,6 +127,25 @@ namespace ValheimVRMod.Utilities
         private static ConfigEntry<float> fpvCamRotationDampening;
         private static ConfigEntry<float> fpvCamZPositionOffset;
 
+        private static ConfigEntry<float> actionCamFOV;
+        private static ConfigEntry<float> actionPositionDampening;
+        private static ConfigEntry<float> actionRotationDampening;
+        private static ConfigEntry<float> actionYPositionOffset;
+        private static ConfigEntry<float> actionZPositionOffset;
+
+        private static ConfigEntry<bool> dynamicCamStopNear;
+        private static ConfigEntry<float> dynamicCamFOV;
+        private static ConfigEntry<float> dynamicCamPosDamp;
+        private static ConfigEntry<float> dynamicCamRotDamp;
+        private static ConfigEntry<float> dynamicCamYPositionOffset;
+        private static ConfigEntry<float> dynamicCamZPositionOffset;
+
+        private static ConfigEntry<float> dynamicBoatCamFOV;
+        private static ConfigEntry<float> dynamicBoatCamPosDamp;
+        private static ConfigEntry<float> dynamicBoatCamRotDamp;
+        private static ConfigEntry<float> dynamicBoatCamYPositionOffset;
+        private static ConfigEntry<float> dynamicBoatCamZPositionOffset;
+
 
 #if DEBUG
         private static ConfigEntry<float> DebugPosX;
@@ -716,6 +735,15 @@ namespace ValheimVRMod.Utilities
                                  false,
                                  "Use this to toggle the spectator desktop camera.");
 
+            spectatorCameraType = config.Bind("Spectator Camera",
+                                "CameraType",
+                                "DynamicThirdPerson",
+                                new ConfigDescription("Sets the behaviour of the spectator camera. Dynamic Third Person is a follow camera, that adjusts to various in-game actions. " +
+                                "StabilizedFPV is a stabilized first person view. " +
+                                "Action Camera is a high FOV follow camera. ",
+                                new AcceptableValueList<string>(new string[] { "ActionCamera", "DynamicThirdPerson", "StabilizedFPV" })));
+
+
             // Spectator Camera Settings
             fpvCamFOV = config.Bind("Spectator Camera",
                                      "SFPV.FieldofView",
@@ -747,6 +775,107 @@ namespace ValheimVRMod.Utilities
                                         0f,
                                         new ConfigDescription("The Z Position offset applied to the Spectator Camera Position. Adjust this to move the camera backwards and forward.",
                                         new AcceptableValueRange<float>(-1f, 1f)));
+
+
+            // Action Camera Settings
+            actionCamFOV = config.Bind("Spectator Camera",
+                                       "AC.FieldofView",
+                                        60f,
+                                        new ConfigDescription("The FOV used by the Action Camera.",
+                                        new AcceptableValueRange<float>(40f, 120f)));
+
+            actionPositionDampening = config.Bind("Spectator Camera",
+                                     "AC.PosDampening",
+                                      0.9f,
+                                      new ConfigDescription("The position smoothing applied to the Action Camera Position.",
+                                      new AcceptableValueRange<float>(0f, 2f)));
+
+            actionRotationDampening = config.Bind("Spectator Camera",
+                                     "AC.RotDampening",
+                                      -0.5f,
+                                      new ConfigDescription("The rotation smoothing applied to the Action Camera Rotation.",
+                                      new AcceptableValueRange<float>(-1f, -0.01f))); // Negative to reverse the slide bar. 
+
+            actionYPositionOffset = config.Bind("Spectator Camera",
+                                     "AC.YPosOffset",
+                                      2f,
+                                      new ConfigDescription("The Y Position offset applied to the Action Camera Position.",
+                                      new AcceptableValueRange<float>(0f, 4f)));
+
+            actionZPositionOffset = config.Bind("Spectator Camera",
+                                     "AC.ZPosOffset",
+                                      -2f,
+                                      new ConfigDescription("The Z Position offset applied to the Action Camera Position.",
+                                      new AcceptableValueRange<float>(-4f, 0f)));
+            // Dynamic Camera Settings
+            dynamicCamStopNear = config.Bind("Spectator Camera",
+                                             "DC.ProximityStop",
+                                             true,
+                                             "Stops the camera when close to the player. It allows for close up views. ");
+
+            dynamicCamFOV = config.Bind("Spectator Camera",
+                                       "DC.FieldofView",
+                                        70f,
+                                        new ConfigDescription("The FOV used by the camera when the Dynamic Camera is active.",
+                                        new AcceptableValueRange<float>(40f, 120f)));
+
+            dynamicCamPosDamp = config.Bind("Spectator Camera",
+                                            "DC.PosDampening",
+                                             0.7f,
+                                             new ConfigDescription("The position smoothing applied to the Dynamic Camera Position.",
+                                             new AcceptableValueRange<float>(0f, 2f)));
+
+            dynamicCamRotDamp = config.Bind("Spectator Camera",
+                                           "DC.RotDampening",
+                                            -0.7f,
+                                            new ConfigDescription("The rotation smoothing applied to the Dynamic Camera Rotation.",
+                                            new AcceptableValueRange<float>(-2f, -0.01f))); // Negative to reverse the slide bar.
+
+            dynamicCamYPositionOffset = config.Bind("Spectator Camera",
+                                                   "DC.YPosOffset",
+                                                    1.5f,
+                                                    new ConfigDescription("The Y Position offset applied to the Dynamic Camera Position.",
+                                                    new AcceptableValueRange<float>(0f, 4f)));
+
+            dynamicCamZPositionOffset = config.Bind("Spectator Camera",
+                                                    "DC.ZPosOffset",
+                                                   -2f,
+                                                    new ConfigDescription("The Z Position offset applied to the Dynamic Camera Position.",
+                                                    new AcceptableValueRange<float>(-4f, 0f)));
+
+
+
+            dynamicBoatCamFOV = config.Bind("Spectator Camera",
+                                       "DC.BoatFieldofView",
+                                        100f,
+                                        new ConfigDescription("The FOV used by the Dynamic Camera when seated in a boat.",
+                                        new AcceptableValueRange<float>(40f, 120f)));
+
+            dynamicBoatCamPosDamp = config.Bind("Spectator Camera",
+                                            "DC.BoatPosDamp",
+                                             0.7f,
+                                             new ConfigDescription("The position smoothing used by the Dynamic Camera when seated in a boat.",
+                                             new AcceptableValueRange<float>(0f, 2f)));
+
+            dynamicBoatCamRotDamp = config.Bind("Spectator Camera",
+                                           "DC.BoatRotDamp",
+                                            0.7f,
+                                            new ConfigDescription("The rotation smoothing used by the Dynamic Camera when seated in a boat.",
+                                            new AcceptableValueRange<float>(0f, 2f)));
+
+            dynamicBoatCamYPositionOffset = config.Bind("Spectator Camera",
+                                                   "DC.BoatYPosOffset",
+                                                    3f,
+                                                    new ConfigDescription("The Y Position offset used by the Dynamic Camera when seated in a boat.",
+                                                    new AcceptableValueRange<float>(0f, 6f)));
+
+            dynamicBoatCamZPositionOffset = config.Bind("Spectator Camera",
+                                                    "DC.BoatZPosOffset",
+                                                   -3f,
+                                                    new ConfigDescription("The Z Position offset used by the Dynamic Camera when seated in a boat.",
+                                                    new AcceptableValueRange<float>(-6f, 0f)));
+
+
 
         }
 
@@ -1261,6 +1390,11 @@ namespace ValheimVRMod.Utilities
         {
             return useSpectatorCamera.Value;
         }
+        public static String GetSpectatorCameraType()
+        {
+            return spectatorCameraType.Value;
+        }
+
 
         //FPV
         public static float GetfpvCamFOV()
@@ -1286,6 +1420,79 @@ namespace ValheimVRMod.Utilities
         {
             return fpvCamZPositionOffset.Value;
         }
+        // Action Camera
+
+        public static float GetactionCamFOV()
+        {
+            return actionCamFOV.Value;
+        }
+
+        public static float GetactionPositionDampening()
+        {
+            return actionPositionDampening.Value;
+        }
+
+        public static float GetactionRotationDampening()
+        {
+            return -(actionRotationDampening.Value);
+        }
+
+        public static Vector3 GetactionPositionOffset()
+        {
+            return new Vector3(0, actionYPositionOffset.Value, actionZPositionOffset.Value);
+        }
+
+        // Dynamic Camera
+
+
+
+        public static bool GetdynamicCamStopNear()
+        {
+            return dynamicCamStopNear.Value;
+        }
+
+        public static float GetdynamicCamFOV()
+        {
+            return dynamicCamFOV.Value;
+        }
+
+        public static float GetdynamicCamPosDamp()
+        {
+            return dynamicCamPosDamp.Value;
+        }
+
+        public static float GetdynamicCamRotDamp()
+        {
+            return -(dynamicCamRotDamp.Value);
+        }
+
+        public static Vector3 GetdynamicCamoffset()
+        {
+            return new Vector3(0, dynamicCamYPositionOffset.Value, dynamicCamZPositionOffset.Value);
+        }
+
+        public static float GetdynamicBoatCamFOV()
+        {
+            return dynamicBoatCamFOV.Value;
+        }
+
+
+        public static float GetdynamicBoatCamPosDamp()
+        {
+            return dynamicBoatCamPosDamp.Value;
+        }
+
+        public static float GetdynamicBoatCamRotDamp()
+        {
+            return dynamicBoatCamRotDamp.Value;
+        }
+
+
+        public static Vector3 GetdynamicBoatCamoffset()
+        {
+            return new Vector3(0, dynamicBoatCamYPositionOffset.Value, dynamicBoatCamZPositionOffset.Value);
+        }
+
 
     }
 }
