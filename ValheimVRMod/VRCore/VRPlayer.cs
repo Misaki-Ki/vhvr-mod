@@ -84,6 +84,7 @@ namespace ValheimVRMod.VRCore
         private Vector3 _lastPlayerPosition = Vector3.zero;
         private Vector3 _lastPlayerAttachmentPosition = Vector3.zero;
         private FadeToBlackManager _fadeManager;
+        private FadeToBlackManager _SpectatorfadeManager;
         private float _forwardSmoothVel = 0.0f, _sideSmoothVel = 0.0f;
         private static float _roomscaleAnimationForwardSpeed = 0.0f;
         private static float _roomscaleAnimationSideSpeed = 0.0f;
@@ -274,7 +275,12 @@ namespace ValheimVRMod.VRCore
             effect.SampleCount = SampleCountLevel.Medium;
             effect.PerPixelNormals = AmplifyOcclusionEffect.PerPixelNormalSource.GBuffer;
             effect.enabled = VHVRConfig.UseAmplifyOcclusion();
-            effect.FilterEnabled = false;
+
+            // Amplify Occlusion appears to have issues with multiple cameras with the temporal filter. Disabling it on the spectator camera for now.
+            if (camera == CameraUtils.getCamera(CameraUtils.SPECTATOR_CAMERA))
+            {
+                effect.FilterEnabled = false;
+            }
         }
 
         private void checkAndSetHandsAndPointers()
@@ -571,10 +577,11 @@ namespace ValheimVRMod.VRCore
         {
 
             Camera mainCamera = CameraUtils.getCamera(CameraUtils.MAIN_CAMERA);
+            Camera vrCamera = CameraUtils.getCamera(CameraUtils.VR_CAMERA);
 
-            if (mainCamera == null)
+            if (mainCamera == null || vrCamera == null)
             {
-                LogError("Main Camera is null.");
+                LogError("A needed camera is null.");
                 return;
             }
 
@@ -596,11 +603,36 @@ namespace ValheimVRMod.VRCore
             maybeCopyPostProcessingEffects(spectatorCamera, mainCamera);
             maybeAddAmplifyOcclusion(spectatorCamera);
 
+           // Planned: Turning off the UI layers. It's captured on a camera of higher depth.
+           // spectatorCamera.cullingMask &= ~(1 << LayerUtils.getUiPanelLayer());
+           // spectatorCamera.cullingMask &= ~(1 << LayerMask.NameToLayer("UI"));
+           // spectatorCamera.cullingMask &= ~(1 << LayerUtils.getHandsLayer());
+           // spectatorCamera.cullingMask &= ~(1 << LayerUtils.getWorldspaceUiLayer());
+
+
+
+
             spectatorCamera.stereoTargetEye = StereoTargetEyeMask.None;
             spectatorCamera.depth = 500;
             spectatorCamera.allowHDR = true;
             spectatorCamera.useOcclusionCulling = true;
             spectatorCamera.enabled = false;
+
+            _SpectatorfadeManager = spectatorCameraObj.AddComponent<FadeToBlackManager>();
+
+
+            // Disables the Spectator Camera so the VR view is displayed during faded sequences. 
+            _SpectatorfadeManager.OnFadeToBlack += () => {
+                spectatorCameraComp.isFade = true;
+            };
+
+            _SpectatorfadeManager.OnFadeToWorld += () => {
+                //Recenter
+                spectatorCameraComp.resetSpectatorCameraToVRCamera();
+                spectatorCameraComp.isFade = false;
+
+            };
+
             _spectatorCam = spectatorCamera;
         }
 

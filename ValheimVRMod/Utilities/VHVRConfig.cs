@@ -121,12 +121,13 @@ namespace ValheimVRMod.Utilities
 
         // Spectator Camera Settings
         private static ConfigEntry<bool> useSpectatorCamera;
-        private static ConfigEntry<string> spectatorCameraType;
 
         private static ConfigEntry<float> fpvCamFOV;
         private static ConfigEntry<float> fpvCamNearClipPlane;
         private static ConfigEntry<float> fpvCamPositionDampening;
         private static ConfigEntry<float> fpvCamRotationDampening;
+        private static ConfigEntry<float> fpvCamXPositionOffset;
+        private static ConfigEntry<float> fpvCamYPositionOffset;
         private static ConfigEntry<float> fpvCamZPositionOffset;
 
 
@@ -743,7 +744,7 @@ namespace ValheimVRMod.Utilities
 
             fpvCamPositionDampening = config.Bind("Spectator Camera",
                                      "SFPV.PosDampening",
-                                      0.01f,
+                                      0.005f,
                                       new ConfigDescription("The position smoothing applied to the Camera Position.",
                                       new AcceptableValueRange<float>(0f, 0.1f)));
 
@@ -752,12 +753,23 @@ namespace ValheimVRMod.Utilities
                                       0.08f,
                                       new ConfigDescription("The rotation smoothing applied to the Camera Rotation.",
                                       new AcceptableValueRange<float>(0f, 0.1f)));
+            fpvCamXPositionOffset = config.Bind("Spectator Camera",
+                                                "SFPV.XPosOffset",
+                                                0f,
+                                                new ConfigDescription("The X Position offset applied to the Spectator Camera Position. Adjust this to move the camera Left and Right.",
+                                                new AcceptableValueRange<float>(-1f, 1f)));
+
+            fpvCamYPositionOffset = config.Bind("Spectator Camera",
+                                                "SFPV.YPosOffset",
+                                                0f,
+                                                new ConfigDescription("The Y Position offset applied to the Spectator Camera Position. Adjust this to move the camera Up and Down.",
+                                                new AcceptableValueRange<float>(-1f, 1f)));
 
             fpvCamZPositionOffset = config.Bind("Spectator Camera",
-                                        "SFPV.ZPosOffset",
-                                        0f,
-                                        new ConfigDescription("The Z Position offset applied to the Spectator Camera Position. Adjust this to move the camera backwards and forward.",
-                                        new AcceptableValueRange<float>(-1f, 1f)));
+                                                "SFPV.ZPosOffset",
+                                                0f,
+                                                new ConfigDescription("The Z Position offset applied to the Spectator Camera Position. Adjust this to move the camera Backwards and Forward.",
+                                                new AcceptableValueRange<float>(-1f, 1f)));
 
         }
 
@@ -1303,9 +1315,9 @@ namespace ValheimVRMod.Utilities
             return fpvCamRotationDampening.Value;
         }
 
-        public static float GetfpvCamZPositionOffset()
+        public static Vector3 GetfpvCamZPositionOffset()
         {
-            return fpvCamZPositionOffset.Value;
+            return new Vector3(fpvCamXPositionOffset.Value, fpvCamYPositionOffset.Value, fpvCamZPositionOffset.Value);
         }
 
     }
