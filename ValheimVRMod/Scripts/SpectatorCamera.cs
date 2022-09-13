@@ -7,14 +7,13 @@ namespace ValheimVRMod.Scripts
 {
     public class SpectatorCamera : MonoBehaviour
     {
-        Camera followCam;
-        Camera specSkyboxCamera;
+        private Camera _followCam;
+        private Camera _specSkyboxCamera;
+        private Camera _mainCamera;
         Transform vrCameraTransform;
 
         private Vector3 offset = new Vector3(0, 2, -2);
-
-        private bool postSpecRun;
-
+        private float initial_MaincameraFOV;
 
         private enum cameraFollowType
         {
@@ -28,7 +27,7 @@ namespace ValheimVRMod.Scripts
         void Start()
         {
             InitalizeCamera();
-            postSpecRun = VHVRConfig.UseSpectatorCamera();
+            initial_MaincameraFOV = _mainCamera.fieldOfView;
 
         }
 
@@ -39,25 +38,28 @@ namespace ValheimVRMod.Scripts
         {
             Camera specSkyboxCam = CameraUtils.getCamera(CameraUtils.SPECTATOR_SKYBOX_CAMERA);
 
-            followCam.enabled = VHVRConfig.UseSpectatorCamera();
+            _followCam.enabled = VHVRConfig.UseSpectatorCamera();
+            if (_followCam.enabled == true)
+            {
+                _mainCamera.fieldOfView = _followCam.fieldOfView;
+            }
+
+            else
+            {
+                _mainCamera.fieldOfView = initial_MaincameraFOV;
+            }
 
             if (specSkyboxCam != null)
             {
-                specSkyboxCam.enabled = followCam.enabled;
-            }
-            if (postSpecRun != VHVRConfig.UseSpectatorCamera())
-            {
-                LogDebug("Spectator Camera set to: " + VHVRConfig.UseSpectatorCamera());
-                resetCamera();
+                specSkyboxCam.enabled = _followCam.enabled;
             }
 
-            postSpecRun = VHVRConfig.UseSpectatorCamera();
         }
 
         void LateUpdate()
         {
 
-            if (followCam.enabled && Player.m_localPlayer != null)
+            if (_followCam.enabled && Player.m_localPlayer != null)
             {
                 Transform HeadtargetTransform = Player.m_localPlayer.m_animator.GetBoneTransform(HumanBodyBones.Head);
                 Transform localPlayerTransform = Player.m_localPlayer.GetTransform();
@@ -81,9 +83,9 @@ namespace ValheimVRMod.Scripts
 
         private void CalculateAndSetFOV(float fieldOfView)
         {
-            float oldfov = followCam.fieldOfView;
-            followCam.fieldOfView = fieldOfView;
-            specSkyboxCamera.fieldOfView += (fieldOfView - oldfov);
+            float oldfov = _followCam.fieldOfView;
+            _followCam.fieldOfView = fieldOfView;
+            _specSkyboxCamera.fieldOfView += (fieldOfView - oldfov);
         }
 
 
@@ -91,12 +93,14 @@ namespace ValheimVRMod.Scripts
 
         private void CameraStabilizedFPV(Transform targetTransform, float fieldOfView, float nearClipPlane, bool lockRotation, float zOffset, float positionDampening, float rotationDampening)
         {
-            followCam.nearClipPlane = nearClipPlane;
+            _followCam.nearClipPlane = nearClipPlane;
 
             CalculateAndSetFOV(fieldOfView);
 
             var velocity = Vector3.zero;
             transform.position = Vector3.SmoothDamp(transform.position, targetTransform.position + targetTransform.forward * zOffset, ref velocity, positionDampening);
+
+
 
             float angularVelocity = 0f;
             float delta = Quaternion.Angle(transform.rotation, targetTransform.rotation);
@@ -139,8 +143,9 @@ namespace ValheimVRMod.Scripts
 
         private void InitalizeCamera()
         {
-            followCam = GetComponent<Camera>();
-            specSkyboxCamera = CameraUtils.getCamera(CameraUtils.SPECTATOR_SKYBOX_CAMERA);
+            _followCam = GetComponent<Camera>();
+            _specSkyboxCamera = CameraUtils.getCamera(CameraUtils.SPECTATOR_SKYBOX_CAMERA);
+            _mainCamera = CameraUtils.getCamera(CameraUtils.MAIN_CAMERA);
         }
 
         public void resetCamera()
