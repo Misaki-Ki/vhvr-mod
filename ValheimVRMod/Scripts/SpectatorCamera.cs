@@ -1,12 +1,16 @@
 ﻿using static ValheimVRMod.Utilities.LogUtils;
+using static ValheimVRMod.Patches.MeshHider;
 
 using UnityEngine;
+using System.Collections;
 using ValheimVRMod.Utilities;
 
 namespace ValheimVRMod.Scripts
 {
     public class SpectatorCamera : MonoBehaviour
     {
+        public bool isFade;
+        private bool isfollowCamEnabled;
         private Camera _followCam;
         private Camera _specSkyboxCamera;
         private Camera _mainCamera;
@@ -38,14 +42,16 @@ namespace ValheimVRMod.Scripts
         {
             Camera specSkyboxCam = CameraUtils.getCamera(CameraUtils.SPECTATOR_SKYBOX_CAMERA);
 
-            _followCam.enabled = VHVRConfig.UseSpectatorCamera();
-            if (_followCam.enabled == true)
+            isfollowCamEnabled = VHVRConfig.UseSpectatorCamera();
+            if (isfollowCamEnabled && !isFade)
             {
+                _followCam.enabled = true;
                 _mainCamera.fieldOfView = _followCam.fieldOfView;
             }
 
             else
             {
+                _followCam.enabled = false;
                 _mainCamera.fieldOfView = initial_MaincameraFOV;
             }
 
@@ -73,9 +79,9 @@ namespace ValheimVRMod.Scripts
                 float fpvNearClipPlane = VHVRConfig.GetfpvCamNearClipPlane();
                 float fpvCamPosDamp = VHVRConfig.GetfpvCamPositionDampening();
                 float fpvCamRotDamp = VHVRConfig.GetfpvCamRotationDampening();
-                float fpvCamZOffset = VHVRConfig.GetfpvCamZPositionOffset();
+                Vector3 fpvCamOffset = VHVRConfig.GetfpvCamZPositionOffset();
 
-                CameraStabilizedFPV(vrCameraTransform, fpvCamFOV, fpvNearClipPlane, false, fpvCamZOffset, fpvCamPosDamp, fpvCamRotDamp);
+                CameraStabilizedFPV(vrCameraTransform, fpvCamFOV, fpvNearClipPlane, false, fpvCamOffset, fpvCamPosDamp, fpvCamRotDamp);
 
             }
 
@@ -91,14 +97,18 @@ namespace ValheimVRMod.Scripts
 
 
 
-        private void CameraStabilizedFPV(Transform targetTransform, float fieldOfView, float nearClipPlane, bool lockRotation, float zOffset, float positionDampening, float rotationDampening)
+        private void CameraStabilizedFPV(Transform targetTransform, float fieldOfView, float nearClipPlane, bool lockRotation, Vector3 offset, float positionDampening, float rotationDampening)
         {
             _followCam.nearClipPlane = nearClipPlane;
 
             CalculateAndSetFOV(fieldOfView);
 
             var velocity = Vector3.zero;
-            transform.position = Vector3.SmoothDamp(transform.position, targetTransform.position + targetTransform.forward * zOffset, ref velocity, positionDampening);
+            transform.position = Vector3.SmoothDamp(transform.position, targetTransform.position
+                                                                        + (targetTransform.right * offset.x)
+                                                                        + (targetTransform.up * offset.y)
+                                                                        + (targetTransform.forward * offset.z),
+                                                                        ref velocity, positionDampening);
 
 
 
@@ -148,7 +158,7 @@ namespace ValheimVRMod.Scripts
             _mainCamera = CameraUtils.getCamera(CameraUtils.MAIN_CAMERA);
         }
 
-        public void resetCamera()
+        public void resetCameraToTransform()
         {
             if (Player.m_localPlayer != null)
             {
@@ -157,5 +167,16 @@ namespace ValheimVRMod.Scripts
 
             }
         }
+
+        public void resetSpectatorCameraToVRCamera()
+        {
+            Camera vrCamera = CameraUtils.getCamera(CameraUtils.VR_CAMERA);
+            if (vrCamera != null)
+            {
+                transform.position = vrCamera.gameObject.transform.position;
+                transform.rotation = vrCamera.gameObject.transform.rotation;
+            }
+        }
+
     }
 }
