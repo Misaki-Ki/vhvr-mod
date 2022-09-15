@@ -2,7 +2,7 @@
 using static ValheimVRMod.Patches.MeshHider;
 
 using UnityEngine;
-using System.Collections;
+using System.Collections.Generic;
 using ValheimVRMod.Utilities;
 
 namespace ValheimVRMod.Scripts
@@ -11,9 +11,14 @@ namespace ValheimVRMod.Scripts
     {
         public bool isFade;
         private bool isfollowCamEnabled;
+        public HashSet<Camera> specatorCameraSet;
+
+        private Camera _mainCamera;
         private Camera _followCam;
         private Camera _specSkyboxCamera;
-        private Camera _mainCamera;
+        private Camera _specUICamera;
+        private Camera _worldSpaceUiSpectatorCamera;
+
         Transform vrCameraTransform;
 
         private Vector3 offset = new Vector3(0, 2, -2);
@@ -30,8 +35,10 @@ namespace ValheimVRMod.Scripts
 
         void Start()
         {
+            
             InitalizeCamera();
             initial_MaincameraFOV = _mainCamera.fieldOfView;
+         
 
         }
 
@@ -40,24 +47,31 @@ namespace ValheimVRMod.Scripts
 
         void Update()
         {
-            Camera specSkyboxCam = CameraUtils.getCamera(CameraUtils.SPECTATOR_SKYBOX_CAMERA);
-
+            
             isfollowCamEnabled = VHVRConfig.UseSpectatorCamera();
+
             if (isfollowCamEnabled && !isFade)
             {
-                _followCam.enabled = true;
+                foreach(Camera camera in specatorCameraSet)
+                {
+                    camera.enabled = true;
+                }
+
+                if (VHVRConfig.HideSpecUI() == true)
+                {
+                    setSpecUICameraEnabled(false);
+                }
+
                 _mainCamera.fieldOfView = _followCam.fieldOfView;
             }
 
             else
             {
-                _followCam.enabled = false;
+                foreach (Camera camera in specatorCameraSet)
+                {
+                    camera.enabled = false;
+                }
                 _mainCamera.fieldOfView = initial_MaincameraFOV;
-            }
-
-            if (specSkyboxCam != null)
-            {
-                specSkyboxCam.enabled = _followCam.enabled;
             }
 
         }
@@ -81,7 +95,7 @@ namespace ValheimVRMod.Scripts
                 float fpvCamRotDamp = VHVRConfig.GetfpvCamRotationDampening();
                 Vector3 fpvCamOffset = VHVRConfig.GetfpvCamZPositionOffset();
 
-                CameraStabilizedFPV(vrCameraTransform, fpvCamFOV, fpvNearClipPlane, false, fpvCamOffset, fpvCamPosDamp, fpvCamRotDamp);
+                CameraStabilizedFPV(vrCameraTransform, fpvCamFOV, fpvNearClipPlane, fpvCamOffset, fpvCamPosDamp, fpvCamRotDamp);
 
             }
 
@@ -97,7 +111,7 @@ namespace ValheimVRMod.Scripts
 
 
 
-        private void CameraStabilizedFPV(Transform targetTransform, float fieldOfView, float nearClipPlane, bool lockRotation, Vector3 offset, float positionDampening, float rotationDampening)
+        private void CameraStabilizedFPV(Transform targetTransform, float fieldOfView, float nearClipPlane, Vector3 offset, float positionDampening, float rotationDampening)
         {
             _followCam.nearClipPlane = nearClipPlane;
 
@@ -118,33 +132,8 @@ namespace ValheimVRMod.Scripts
             {
                 float t = Mathf.SmoothDampAngle(delta, 0.0f, ref angularVelocity, rotationDampening);
                 t = 1.0f - (t / delta);
-
-
-
-                if (lockRotation) // Broken, still working on it.
-                {
-                    /*
-                    float rollCorrectionSpeed = 1f;
-                   
-                    float roll = Vector3.Dot(transform.right, Vector3.up);  
-                    transform.Rotate(0, 0, -roll * rollCorrectionSpeed);
-                    Vector3 directionVector = targetTransform.position - transform.position;
-                    Quaternion lookRotation = Quaternion.LookRotation(directionVector);
-                    transform.rotation = Quaternion.RotateTowards(transform.rotation, targetTransform.rotation, (rotationDampening * 1000) * Time.deltaTime);
-                    */
-
-                    transform.rotation = Quaternion.LookRotation(targetTransform.forward);
-                    // broken when looking up and down
-                    //float lockZ = 0f;
-                    // transform.rotation = Quaternion.Euler(transform.rotation.eulerAngles.x, transform.rotation.eulerAngles.y, lockZ);
-
-
-                }
-
-                else
-                {
-                    transform.rotation = Quaternion.Slerp(transform.rotation, targetTransform.rotation, t);
-                }
+                transform.rotation = Quaternion.Slerp(transform.rotation, targetTransform.rotation, t);
+                
             }
 
 
@@ -153,9 +142,50 @@ namespace ValheimVRMod.Scripts
 
         private void InitalizeCamera()
         {
+            specatorCameraSet = new HashSet<Camera>();
             _followCam = GetComponent<Camera>();
             _specSkyboxCamera = CameraUtils.getCamera(CameraUtils.SPECTATOR_SKYBOX_CAMERA);
             _mainCamera = CameraUtils.getCamera(CameraUtils.MAIN_CAMERA);
+
+            createUiPanelCamera();
+            CreateWorldSpaceSpecUICamera();
+
+            specatorCameraSet.Add(_followCam);
+            specatorCameraSet.Add(_specSkyboxCamera);
+
+        }
+
+        private void createUiPanelCamera()
+        {
+            GameObject uiPanelCameraObj = new GameObject(CameraUtils.SPECTATOR_UI_CAMERA);
+            _specUICamera = uiPanelCameraObj.AddComponent<Camera>();
+            _specUICamera.CopyFrom(_followCam);
+            _specUICamera.depth = 501;
+            _specUICamera.clearFlags = CameraClearFlags.Depth;
+            _specUICamera.renderingPath = RenderingPath.Forward;
+            _specUICamera.cullingMask = LayerUtils.UI_PANEL_LAYER_MASK;
+            _specUICamera.transform.SetParent(_followCam.transform);
+            _specUICamera.enabled = true;
+
+            specatorCameraSet.Add(_specUICamera);
+        }
+
+        private void CreateWorldSpaceSpecUICamera()
+        {
+            Camera worldSpaceUiCamera = CameraUtils.getCamera(CameraUtils.WORLD_SPACE_UI_CAMERA);
+
+            if (worldSpaceUiCamera != null)
+            {
+                GameObject worldSpaceUiSpectatorCamParent = new GameObject(CameraUtils.WORLD_SPACE_UI_SPECTATOR_CAMERA);
+                _worldSpaceUiSpectatorCamera = worldSpaceUiSpectatorCamParent.AddComponent<Camera>();
+                _worldSpaceUiSpectatorCamera.CopyFrom(worldSpaceUiCamera);
+                _worldSpaceUiSpectatorCamera.depth = 502;
+                _worldSpaceUiSpectatorCamera.stereoTargetEye = StereoTargetEyeMask.None;
+                worldSpaceUiSpectatorCamParent.transform.SetParent(_followCam.transform);
+
+                specatorCameraSet.Add(_worldSpaceUiSpectatorCamera);
+
+            }
         }
 
         public void resetCameraToTransform()
@@ -176,6 +206,18 @@ namespace ValheimVRMod.Scripts
                 transform.position = vrCamera.gameObject.transform.position;
                 transform.rotation = vrCamera.gameObject.transform.rotation;
             }
+        }
+
+        private void setSpecCameraEnabled(bool isEnabled)
+        {
+            _followCam.enabled = isEnabled;
+            _specSkyboxCamera.enabled = isEnabled;
+        }
+
+        private void setSpecUICameraEnabled(bool isEnabled)
+        {
+            _specUICamera.enabled = isEnabled;
+            _worldSpaceUiSpectatorCamera.enabled = isEnabled;
         }
 
     }

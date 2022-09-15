@@ -76,6 +76,8 @@ namespace ValheimVRMod.VRCore
         private Camera _spectatorSkyboxCam;
         private Camera _spectatorCam;
 
+        private SpectatorCamera _spectatorCameraComp;
+
 
 
         //Roomscale movement variables
@@ -569,9 +571,6 @@ namespace ValheimVRMod.VRCore
 
             _spectatorSkyboxCam = spectatorSkyboxCam;
 
-            CameraUtils.PrintCamera(CameraUtils.getCamera(CameraUtils.VRSKYBOX_CAMERA));
-
-
         }
         private void EnableSpectatorCamera()
         {
@@ -596,20 +595,17 @@ namespace ValheimVRMod.VRCore
 
             GameObject spectatorCameraObj = new GameObject(CameraUtils.SPECTATOR_CAMERA);
             Camera spectatorCamera = spectatorCameraObj.AddComponent<Camera>();
-            SpectatorCamera spectatorCameraComp = spectatorCameraObj.AddComponent<SpectatorCamera>() as SpectatorCamera;
+            _spectatorCameraComp = spectatorCameraObj.AddComponent<SpectatorCamera>() as SpectatorCamera;
             spectatorCamera.CopyFrom(mainCamera);
-            spectatorCamera.ResetCullingMatrix();
 
             maybeCopyPostProcessingEffects(spectatorCamera, mainCamera);
             maybeAddAmplifyOcclusion(spectatorCamera);
 
-           // Planned: Turning off the UI layers. It's captured on a camera of higher depth.
-           // spectatorCamera.cullingMask &= ~(1 << LayerUtils.getUiPanelLayer());
-           // spectatorCamera.cullingMask &= ~(1 << LayerMask.NameToLayer("UI"));
-           // spectatorCamera.cullingMask &= ~(1 << LayerUtils.getHandsLayer());
-           // spectatorCamera.cullingMask &= ~(1 << LayerUtils.getWorldspaceUiLayer());
-
-
+           // Turning off the UI layers. It's captured on a camera of higher depth.
+           spectatorCamera.cullingMask &= ~(1 << LayerUtils.getUiPanelLayer());
+           spectatorCamera.cullingMask &= ~(1 << LayerMask.NameToLayer("UI"));
+           spectatorCamera.cullingMask &= ~(1 << LayerUtils.getHandsLayer());
+           spectatorCamera.cullingMask &= ~(1 << LayerUtils.getWorldspaceUiLayer());
 
 
             spectatorCamera.stereoTargetEye = StereoTargetEyeMask.None;
@@ -623,13 +619,13 @@ namespace ValheimVRMod.VRCore
 
             // Disables the Spectator Camera so the VR view is displayed during faded sequences. 
             _SpectatorfadeManager.OnFadeToBlack += () => {
-                spectatorCameraComp.isFade = true;
+                _spectatorCameraComp.isFade = true;
             };
 
             _SpectatorfadeManager.OnFadeToWorld += () => {
                 //Recenter
-                spectatorCameraComp.resetSpectatorCameraToVRCamera();
-                spectatorCameraComp.isFade = false;
+                _spectatorCameraComp.resetSpectatorCameraToVRCamera();
+                _spectatorCameraComp.isFade = false;
 
             };
 
