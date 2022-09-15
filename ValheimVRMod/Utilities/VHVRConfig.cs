@@ -121,7 +121,7 @@ namespace ValheimVRMod.Utilities
 
         // Spectator Camera Settings
         private static ConfigEntry<bool> useSpectatorCamera;
-
+        private static ConfigEntry<bool> hideSpecUI;
         private static ConfigEntry<float> fpvCamFOV;
         private static ConfigEntry<float> fpvCamNearClipPlane;
         private static ConfigEntry<float> fpvCamPositionDampening;
@@ -728,6 +728,11 @@ namespace ValheimVRMod.Utilities
                                  false,
                                  "Use this to toggle the spectator desktop camera.");
 
+            hideSpecUI = config.Bind("Spectator Camera",
+                     "HideUI",
+                     false,
+                     "Determines if the HUD and GUI should be displayed on the spectator camera.");
+
             // Spectator Camera Settings
             fpvCamFOV = config.Bind("Spectator Camera",
                                      "SFPV.FieldofView",
@@ -746,7 +751,7 @@ namespace ValheimVRMod.Utilities
                                      "SFPV.PosDampening",
                                       0.005f,
                                       new ConfigDescription("The position smoothing applied to the Camera Position.",
-                                      new AcceptableValueRange<float>(0f, 0.1f)));
+                                      new AcceptableValueRange<float>(0f, 0.05f)));
 
             fpvCamRotationDampening = config.Bind("Spectator Camera",
                                      "SFPV.RotDampening",
@@ -1293,6 +1298,11 @@ namespace ValheimVRMod.Utilities
         public static bool UseSpectatorCamera()
         {
             return useSpectatorCamera.Value;
+        }
+
+        public static bool HideSpecUI()
+        {
+            return hideSpecUI.Value;
         }
 
         //FPV
