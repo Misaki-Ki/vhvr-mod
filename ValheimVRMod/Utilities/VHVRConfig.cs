@@ -132,6 +132,18 @@ namespace ValheimVRMod.Utilities
         private static ConfigEntry<float> fpvCamZPositionOffset;
 
 
+        // Spectator Camera Settings
+        private static ConfigEntry<bool> useSpectatorCamera;
+        private static ConfigEntry<bool> hideSpecUI;
+        private static ConfigEntry<float> fpvCamFOV;
+        private static ConfigEntry<float> fpvCamNearClipPlane;
+        private static ConfigEntry<float> fpvCamPositionDampening;
+        private static ConfigEntry<float> fpvCamRotationDampening;
+        private static ConfigEntry<float> fpvCamXPositionOffset;
+        private static ConfigEntry<float> fpvCamYPositionOffset;
+        private static ConfigEntry<float> fpvCamZPositionOffset;
+
+
 #if DEBUG
         private static ConfigEntry<float> DebugPosX;
         private static ConfigEntry<float> DebugPosY;
