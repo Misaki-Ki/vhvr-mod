@@ -76,6 +76,12 @@ namespace ValheimVRMod.VRCore.UI
                 }
                 return;
             }
+            if (Player.m_localPlayer && Player.m_localPlayer.IsAttachedToShip() && Player.m_localPlayer.GetControlledShip())
+            {
+                _hoverNameCanvasParentLeft.SetActive(false);
+                _hoverNameCanvasParent.SetActive(false);
+                return;
+            }
             if ((_canvasCrosshairRoot == null || _canvasCrosshairRootClone == null)
                 && !findVanillaCrosshairs(guiCanvas.transform))
             {
@@ -188,7 +194,10 @@ namespace ValheimVRMod.VRCore.UI
             {
                 return true;
             }
-            ensureCrosshairCamera();
+            if (!ensureCrosshairCamera())
+            {
+                return false;
+            }
             _crosshairCanvasParent = new GameObject("CrosshairCanvasGameObject");
             _crosshairCanvasParent.layer = LayerUtils.getWorldspaceUiLayer();
             GameObject.DontDestroyOnLoad(_crosshairCanvasParent);

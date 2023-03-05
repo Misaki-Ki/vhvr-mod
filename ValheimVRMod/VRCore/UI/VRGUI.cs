@@ -99,7 +99,19 @@ namespace ValheimVRMod.VRCore.UI
             }
         }
 
-        public void Update()
+        public void OnRenderObject()
+        {
+            if (ensureGuiCanvas())
+            {
+                if (!USING_OVERLAY)
+                {
+                    updateUiPanel();
+                    maybeInitializePointers();
+                }
+            }
+        }
+
+        public void FixedUpdate()
         {
             if (ensureGuiCanvas())
             {
@@ -187,13 +199,18 @@ namespace ValheimVRMod.VRCore.UI
                 if (playerInstance.IsAttachedToShip())
                 {
                     // Always lock the UI to the forward direction of ship when sailing.
-                    Vector3 forwardDirection = Vector3.ProjectOnPlane(Player.m_localPlayer.m_attachPoint.forward, Vector3.up).normalized;
+                    var upTarget = Vector3.up;
+                    if (VHVRConfig.IsShipImmersiveCamera())
+                    {
+                        upTarget = VRPlayer.instance.transform.up;
+                    }
+                    Vector3 forwardDirection = Vector3.ProjectOnPlane(Player.m_localPlayer.m_attachPoint.forward, upTarget).normalized;
                     _uiPanel.transform.rotation = Quaternion.LookRotation(forwardDirection, VRPlayer.instance.transform.up);
                     _uiPanel.transform.position = playerInstance.transform.position + _uiPanel.transform.rotation * offsetPosition;
                     return;
                 }
                 _uiPanel.transform.localScale = new Vector3(VHVRConfig.GetUiPanelSize() * GUI_DIMENSIONS.x / GUI_DIMENSIONS.y,
-                                                        VHVRConfig.GetUiPanelSize(), 1f);
+                                                        VHVRConfig.GetUiPanelSize(), 0.00001f);
                 var currentDirection = getCurrentGuiDirection();
                 if (isRecentering)
                 {
@@ -226,7 +243,7 @@ namespace ValheimVRMod.VRCore.UI
             }
             float ratio = (float)GUI_DIMENSIONS.x / (float)GUI_DIMENSIONS.y;
             _uiPanel.transform.localScale = new Vector3(VHVRConfig.GetUiPanelSize() * ratio,
-                                                        VHVRConfig.GetUiPanelSize(), 1f);
+                                                        VHVRConfig.GetUiPanelSize(), 0.00001f);
         }
 
         private bool shouldLockDynamicGuiPosition()
@@ -287,7 +304,7 @@ namespace ValheimVRMod.VRCore.UI
                 _leftPointer = VRPlayer.leftPointer;
                 if (_leftPointer != null)
                 {
-                    _leftPointer.PointerTracking += OnPointerTracking;
+                    _leftPointer.PointerTracking += OnPointerTrackingLeftHand;
                 }
             }
             if (_rightPointer == null)
@@ -327,6 +344,19 @@ namespace ValheimVRMod.VRCore.UI
         {
             if (isUiPanel(e.target))
                 _inputModule.SimulateRightClick();
+        }
+
+        public void OnPointerTrackingLeftHand(object p, PointerEventArgs e)
+        {
+            if (isUiPanel(e.target))
+            {
+                SoftwareCursor.simulatedMousePosition =
+                    convertLocalUiPanelCoordinatesToCursorCoordinates(e.target.InverseTransformPoint(e.position));
+                // PointerEventArgs#buttonStateLeft does not give valid state of the trigger, so we need to check other things in order to emulate mouse clicks.
+                // Note: when the laser pointer is active, SteamVR_Actions.valheim_Use or SteamVR_Actions.valheim_UseLeft does not detect left controller trigger press either.
+                _inputModule.UpdateLeftButtonState(SteamVR_Actions.default_SkeletonLeftHand.GetFingerCurl(SteamVR_Skeleton_FingerIndexEnum.index) > 0.75f);
+                _inputModule.UpdateRightButtonState(SteamVR_Actions.valheim_QuickActions.GetState(SteamVR_Input_Sources.LeftHand));
+            }
         }
 
         public void OnPointerTracking(object p, PointerEventArgs e)
@@ -605,8 +635,8 @@ namespace ValheimVRMod.VRCore.UI
             _guiCamera.clearFlags = CameraClearFlags.Color;
             // Required to actually capture only the GUI layer
             _guiCamera.cullingMask = (1 << LayerMask.NameToLayer("UI"));
-            _guiCamera.farClipPlane = 1.1f;
-            _guiCamera.nearClipPlane = 0.9f;
+            _guiCamera.farClipPlane = 5f;
+            _guiCamera.nearClipPlane = 0.1f;
             _guiCamera.enabled = true;
         }
 

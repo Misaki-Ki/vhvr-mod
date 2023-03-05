@@ -1,4 +1,4 @@
-﻿//
+//
 //  Outline.cs
 //  QuickOutline
 //
@@ -76,8 +76,10 @@ public class Outline : MonoBehaviour {
   private List<ListVector3> bakeValues = new List<ListVector3>();
 
   private Renderer[] renderers;
-  private static Material outlineMaskMaterial;
-  private static Material outlineFillMaterial;
+  private static Material sharedOutlineMaskMaterial;
+  private static Material sharedOutlineFillMaterial;
+  private Material outlineMaskMaterial;
+  private Material outlineFillMaterial;
 
   private bool needsUpdate;
 
@@ -102,11 +104,26 @@ public class Outline : MonoBehaviour {
       return;
     }
     
-    outlineMaskMaterial = Instantiate(VRAssetManager.GetAsset<Material>("OutlineMask"));
-    outlineFillMaterial = Instantiate(VRAssetManager.GetAsset<Material>("OutlineFill"));
+    if (sharedOutlineMaskMaterial == null) {
+      sharedOutlineMaskMaterial = Instantiate(VRAssetManager.GetAsset<Material>("OutlineMask"));
+      sharedOutlineMaskMaterial.name = "OutlineMask (Instance)";
+    }
+    if (sharedOutlineFillMaterial == null) {
+      sharedOutlineFillMaterial = Instantiate(VRAssetManager.GetAsset<Material>("OutlineFill"));
+      sharedOutlineMaskMaterial.name = "OutlineFill (Instance)";
+    }
 
-    outlineMaskMaterial.name = "OutlineMask (Instance)";
-    outlineFillMaterial.name = "OutlineFill (Instance)";
+    outlineMaskMaterial = new Material(sharedOutlineMaskMaterial);
+    outlineFillMaterial = new Material(sharedOutlineFillMaterial);
+  }
+
+  private bool IsPlayerHairMaterials(List<Material> materials) {
+    foreach (Material material in materials) {
+      if (material.name.StartsWith("PlayerHair")) {
+        return true;
+      }
+    }
+    return false;
   }
 
   void OnEnable() {
@@ -118,6 +135,13 @@ public class Outline : MonoBehaviour {
       
       // Append outline shaders
       var materials = renderer.sharedMaterials.ToList();
+
+      if (IsPlayerHairMaterials(materials)) {
+        // Two reasons for not adding outlines to player hairs:
+        // 1. The material array on player hairs are finicky and we might not be able find the correct outline material instances later when we attempt to remove them.
+        // 2. The hair, espcially eyebrows, is too close to the camera and their outline may become visible even with a moderate near clip distance.
+        continue;
+      }
 
       materials.Add(outlineMaskMaterial);
       materials.Add(outlineFillMaterial);
@@ -157,10 +181,17 @@ public class Outline : MonoBehaviour {
       if (renderer.GetType() == typeof(ParticleSystemRenderer)) {
         continue;
       }
-      
-      // Remove outline shaders
-      var materials = renderer.sharedMaterials.ToList();
 
+      // Remove outline shaders
+      var materials = renderer?.sharedMaterials?.ToList();
+      if (materials == null)
+      {
+        continue;
+      }
+
+      // TODO: there is a chance that the vanilla game or other mods has modified the material array since we added the outline materials,
+      // which would make the outline materials references here stale and cause us to fail to remove them.
+      // Consider, instead, iterating over the materials and check materials[i].name.startWith("OutlineMask") || materials[i].name.startWith("OutlineFill")
       materials.Remove(outlineMaskMaterial);
       materials.Remove(outlineFillMaterial);
 
@@ -192,7 +223,10 @@ public class Outline : MonoBehaviour {
 
     // Retrieve or generate smooth normals
     foreach (var meshFilter in GetComponentsInChildren<MeshFilter>()) {
-
+      if (!meshFilter.sharedMesh.isReadable)
+      {
+        continue;
+      }
       // Skip if smooth normals have already been adopted
       if (!registeredMeshes.Add(meshFilter.sharedMesh)) {
         continue;
@@ -208,6 +242,10 @@ public class Outline : MonoBehaviour {
 
     // Clear UV3 on skinned mesh renderers
     foreach (var skinnedMeshRenderer in GetComponentsInChildren<SkinnedMeshRenderer>()) {
+      if (!skinnedMeshRenderer.sharedMesh.isReadable)
+      {
+        continue;
+      }
       if (registeredMeshes.Add(skinnedMeshRenderer.sharedMesh)) {
         skinnedMeshRenderer.sharedMesh.uv4 = new Vector2[skinnedMeshRenderer.sharedMesh.vertexCount];
       }

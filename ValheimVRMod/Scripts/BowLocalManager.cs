@@ -10,24 +10,32 @@ using Valve.VR.InteractionSystem;
 namespace ValheimVRMod.Scripts {
     public class BowLocalManager : BowManager {
         private const float attachRange = 0.2f;
-        private const float arrowLength = 1.25f;
+        private const float legacyArrowCenterToTailDistance = 1.25f;
+        private const float shortArrowCenterToTailDistance = 0.78f;
 
         private GameObject arrow;
+        private GameObject pausedCosmeticArrow; // An arrow shown on the bow when player movment is paused even after the actual arrow is shot for cosmetic purposes.
         private GameObject chargeIndicator;
+        private GameObject drawIndicator;
         private LineRenderer predictionLine;
+        private float fullDrawLength { get { return Mathf.Max(VHVRConfig.GetBowFullDrawLength(), GetBraceHeight() + 0.1f); } }
         private float projectileVel;
         private float projectileVelMin;
         private ItemDrop.ItemData item;
         private Attack attack;
         private float attackDrawPercentage;
+        private float currentMaxDrawPercentage;
+        private float centerToTailDistance = legacyArrowCenterToTailDistance;
 
         public static BowLocalManager instance;
         public static Vector3 spawnPoint;
         public static Vector3 aimDir;
+        public static float realLifePullPercentage { get; private set; }
 
         public static bool isPulling;
         public static bool startedPulling;
         public static bool aborting;
+        public static bool finishedPulling;
 
         private GameObject arrowAttach;
 
@@ -35,7 +43,7 @@ namespace ValheimVRMod.Scripts {
         private void Start() {
             instance = this;
             arrowAttach = new GameObject();
-            mainHand = getMainHand().transform;
+            mainHand = VRPlayer.dominantHand.transform;
             predictionLine = new GameObject().AddComponent<LineRenderer>();
             predictionLine.widthMultiplier = 0.03f;
             predictionLine.positionCount = 20;
@@ -47,6 +55,7 @@ namespace ValheimVRMod.Scripts {
             predictionLine.reflectionProbeUsage = ReflectionProbeUsage.Off;
 
             createChargeIndicator();
+            drawIndicator.transform.localPosition -= Vector3.forward * 0.001f;
 
             arrowAttach.transform.SetParent(mainHand, false);
 
@@ -60,9 +69,11 @@ namespace ValheimVRMod.Scripts {
         protected new void OnDestroy() {
             base.OnDestroy();
             destroyArrow();
+            destroyPausedCosmeticArrow();
             Destroy(predictionLine);
             Destroy(arrowAttach);
             Destroy(chargeIndicator);
+            Destroy(drawIndicator);
         }
 
         private void destroyArrow() {
@@ -71,8 +82,13 @@ namespace ValheimVRMod.Scripts {
             }
         }
 
-        private Hand getMainHand() {
-            return VHVRConfig.LeftHanded() ? VRPlayer.leftHand : VRPlayer.rightHand;
+        private void destroyPausedCosmeticArrow()
+        {
+            if (pausedCosmeticArrow != null)
+            {
+                Destroy(pausedCosmeticArrow);
+            }
+            pausedCosmeticArrow = null;
         }
 
         /**
@@ -86,6 +102,22 @@ namespace ValheimVRMod.Scripts {
             }
 
             base.OnRenderObject();
+            if (VRPlayer.ShouldPauseMovement)
+            {
+                if (arrow != null && pausedCosmeticArrow == null)
+                {
+                    // Show an arrow on the bow when player movement is paused.
+                    // This arrow will persist after the actual arrow is shown until player movement is unpaused.
+                    // It is purely cosmetic and has no effect on arrow shooting and attacks in actual gameplay.
+                    pausedCosmeticArrow = Instantiate(arrow, bowOrientation);
+                    pausedCosmeticArrow.transform.SetPositionAndRotation(arrow.transform.position, arrow.transform.rotation);
+                }
+            }
+            else
+            {
+                destroyPausedCosmeticArrow();
+            }
+
 
             var arrowHand = VHVRConfig.LeftHanded() ? SteamVR_Input_Sources.LeftHand : SteamVR_Input_Sources.RightHand;
             var bowHand = VHVRConfig.LeftHanded() ? SteamVR_Input_Sources.RightHand : SteamVR_Input_Sources.LeftHand;
@@ -115,6 +147,15 @@ namespace ValheimVRMod.Scripts {
             }
         }
 
+        protected override float getPullLenghtRestriction()
+        {
+            // If RestrictBowDrawSpeed is enabled, limit the vr pull length by the square root of the current attack draw percentage to simulate the resistance.
+            return
+                VHVRConfig.RestrictBowDrawSpeed() == "Full" ?
+                    Mathf.Lerp(GetBraceHeight(), fullDrawLength, Math.Max(Mathf.Sqrt(Player.m_localPlayer.GetAttackDrawPercentage()), 0.01f)) :
+                    fullDrawLength + 0.05f;
+        }
+
         private void updateOutline() {
             if (outline == null) {
                 return;
@@ -127,12 +168,23 @@ namespace ValheimVRMod.Scripts {
         }
 
         private void updateChargeIndicator() {
-            if (VHVRConfig.RestrictBowDrawSpeed() && pulling && attackDrawPercentage < 1 && attackDrawPercentage > 0) {
-                chargeIndicator.transform.localScale = new Vector3(0.05f * (1 - attackDrawPercentage), 0.0001f, 0.05f * (1 - attackDrawPercentage));
-                chargeIndicator.GetComponent<MeshRenderer>().material.color = new Vector4(1, attackDrawPercentage, 0, 1);
+            var drawPercent = Player.m_localPlayer.GetAttackDrawPercentage();
+            if (VHVRConfig.RestrictBowDrawSpeed() != "None" && pulling && drawPercent < 1 && drawPercent > 0) {
+                chargeIndicator.transform.localScale = new Vector3(0.05f * (1 - drawPercent), 0.0001f, 0.05f * (1 - drawPercent));
+                chargeIndicator.GetComponent<MeshRenderer>().material.color = new Vector4(1, drawPercent, 0, 1);
                 chargeIndicator.SetActive(true);
             } else {
                 chargeIndicator.SetActive(false);
+            }
+            if (pulling && realLifePullPercentage < 1 && realLifePullPercentage > 0)
+            {
+                drawIndicator.transform.localScale = new Vector3(0.05f * (1 - realLifePullPercentage), 0.0001f, 0.05f * (1 - realLifePullPercentage));
+                drawIndicator.GetComponent<MeshRenderer>().material.color = new Vector4(0f, realLifePullPercentage, 1, 1);
+                drawIndicator.SetActive(true);
+            }
+            else
+            {
+                drawIndicator.SetActive(false);
             }
         }
         
@@ -152,8 +204,8 @@ namespace ValheimVRMod.Scripts {
             if (!predictionLine.enabled) {
                 return;
             }
-
-            Vector3 vel = aimDir * Mathf.Lerp(projectileVelMin, projectileVel, attackDrawPercentage);
+            var isBowDrawable = Player.m_localPlayer.GetLeftItem().m_shared.m_attack.m_bowDraw;
+            Vector3 vel = aimDir * Mathf.Lerp(projectileVelMin, projectileVel, isBowDrawable ? pullPercentage():1);
 
             float stepLength = 0.1f;
             float stepSize = 20;
@@ -180,21 +232,38 @@ namespace ValheimVRMod.Scripts {
                 return;
             }
 
-            VrikCreator.GetDominantHandConnector().position = pullObj.transform.position;
-            arrowAttach.transform.rotation = pullObj.transform.rotation;
-            arrowAttach.transform.position = pullObj.transform.position;
+            realLifePullPercentage = oneHandedAiming ? 1 : Mathf.Pow(Math.Min(Math.Max(pullStart.localPosition.z - pullObj.transform.localPosition.z, 0) / (fullDrawLength - GetBraceHeight()), 1), 2);
+         
+            //bHaptics
+            if (!BhapticsTactsuit.suitDisabled && realLifePullPercentage != 0)
+            {
+                BhapticsTactsuit.StartThreadHaptic(VHVRConfig.LeftHanded() ? "BowStringLeft" : "BowStringRight",
+                    realLifePullPercentage * 1.5f, true);
+                // ARMS TACTOSY
+                BhapticsTactsuit.StartThreadHaptic(VHVRConfig.LeftHanded() ? "Recoil_L" : "Recoil_R",
+                    realLifePullPercentage * 1.5f, true);
+            }
+
+            VrikCreator.GetLocalPlayerDominantHandConnector().position = pullObj.transform.position;
+            arrowAttach.transform.SetPositionAndRotation(pullObj.transform.position, pushObj.transform.rotation);
             spawnPoint = getArrowRestPosition();
             aimDir = getAimDir();
             if (arrow) {
-                arrow.transform.position = pullObj.transform.position + aimDir * arrowLength;
-                arrow.transform.rotation = Quaternion.LookRotation(aimDir, -transform.up);
+                arrow.transform.position = pullObj.transform.position + aimDir * centerToTailDistance;
+                arrow.transform.rotation = Quaternion.LookRotation(aimDir, bowOrientation.transform.up);
             }
             var currDrawPercentage = pullPercentage();
-            if (arrow != null && currDrawPercentage > attackDrawPercentage && !VHVRConfig.RestrictBowDrawSpeed()) {
+            currentMaxDrawPercentage = Math.Max(currDrawPercentage, currentMaxDrawPercentage);
+            if (arrow != null && currentMaxDrawPercentage > attackDrawPercentage && VHVRConfig.RestrictBowDrawSpeed() == "None") {
                 float additionalStaminaDrain = 15;
-                Player.m_localPlayer.UseStamina((currDrawPercentage - attackDrawPercentage) * additionalStaminaDrain * VHVRConfig.GetBowStaminaScalar());
+                Player.m_localPlayer.UseStamina((currentMaxDrawPercentage - attackDrawPercentage) * additionalStaminaDrain * VHVRConfig.GetBowStaminaScalar());
             }
-            attackDrawPercentage = currDrawPercentage;
+            attackDrawPercentage = currentMaxDrawPercentage;
+            if (attackDrawPercentage == 1 && !finishedPulling) 
+            {
+                finishedPulling = true;
+                VRPlayer.dominantHand.otherHand.hapticAction.Execute(0, 0.2f, 100, 0.3f, VRPlayer.nonDominantHandInputSource);
+            }
         }
 
         private void releaseString(bool withoutShoot = false) {
@@ -206,7 +275,9 @@ namespace ValheimVRMod.Scripts {
 
             predictionLine.enabled = false;
             pulling = isPulling = false;
+            finishedPulling = false;
             attackDrawPercentage = pullPercentage();
+            currentMaxDrawPercentage = 0;
             spawnPoint = getArrowRestPosition();
             aimDir = getAimDir();
 
@@ -223,20 +294,17 @@ namespace ValheimVRMod.Scripts {
             }
 
             // SHOOTING FEEDBACK
-            SteamVR_Input_Sources arrowHand = VHVRConfig.LeftHanded() ? SteamVR_Input_Sources.LeftHand : SteamVR_Input_Sources.RightHand;
-            SteamVR_Input_Sources bowHand = VHVRConfig.LeftHanded() ? SteamVR_Input_Sources.RightHand : SteamVR_Input_Sources.LeftHand;
-            getMainHand().hapticAction.Execute(0, 0.1f, 75, 0.9f, arrowHand);
-            getMainHand().otherHand.hapticAction.Execute(0, 0.2f, 100, 0.3f, bowHand);
+            VRPlayer.dominantHand.hapticAction.Execute(0, 0.1f, 75, 0.9f, VRPlayer.dominantHandInputSource);
+            VRPlayer.dominantHand.otherHand.hapticAction.Execute(0, 0.2f, 100, 0.3f, VRPlayer.nonDominantHandInputSource);
             destroyArrow();
         }
 
         private float pullPercentage() {
-            return VHVRConfig.RestrictBowDrawSpeed() ? Math.Min(realLifePullPercentage, Player.m_localPlayer.GetAttackDrawPercentage()) : realLifePullPercentage;
+            return VHVRConfig.RestrictBowDrawSpeed() != "None" ? Math.Min(realLifePullPercentage, Player.m_localPlayer.GetAttackDrawPercentage()) : realLifePullPercentage;
         }
 
         private bool checkHandNearString() {
-            if (Vector3.Distance(mainHand.position, transform.TransformPoint(pullStart)) >
-                attachRange) {
+            if (Vector3.Distance(mainHand.position, pullStart.position) > attachRange) {
                 return false;
             }
 
@@ -263,10 +331,25 @@ namespace ValheimVRMod.Scripts {
             }
             
             var ammoItem = Player.m_localPlayer.GetAmmoItem();
-            
+
             if (ammoItem == null || ammoItem.m_shared.m_itemType != ItemDrop.ItemData.ItemType.Ammo) {
                 // out of ammo
-                return;
+                if (!Attack.HaveAmmo(Player.m_localPlayer, item))
+                {
+                    return;
+                }
+                Attack.EquipAmmoItem(Player.m_localPlayer, item);
+            }
+
+            switch (Player.m_localPlayer.GetAmmoItem().m_shared.m_name)
+            {
+                case "$item_arrow_needle":
+                case "$item_arrow_carapace":
+                    centerToTailDistance = shortArrowCenterToTailDistance;
+                    break;
+                default:
+                    centerToTailDistance = legacyArrowCenterToTailDistance;
+                    break;
             }
 
             try {
@@ -288,7 +371,7 @@ namespace ValheimVRMod.Scripts {
             Destroy(findTrail(arrow.transform));
             Destroy(arrow.GetComponentInChildren<Collider>());
             arrow.transform.localRotation = Quaternion.identity;
-            arrow.transform.localPosition = new Vector3(0, 0, 1.25f);
+            arrow.transform.localPosition = new Vector3(0, 0, centerToTailDistance);
             foreach (ParticleSystem particleSystem in arrow.GetComponentsInChildren<ParticleSystem>()) {
                 particleSystem.transform.localScale *= VHVRConfig.ArrowParticleSize();
             }
@@ -303,8 +386,8 @@ namespace ValheimVRMod.Scripts {
 
         private void createChargeIndicator() {
             chargeIndicator = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            chargeIndicator.transform.SetParent(transform);
-            chargeIndicator.transform.localPosition = new Vector3(0, -VHVRConfig.ArrowRestElevation() * 0.75f, 0);
+            chargeIndicator.transform.SetParent(bowOrientation.transform);
+            chargeIndicator.transform.localPosition = new Vector3(0, VHVRConfig.ArrowRestElevation() * 0.75f, 0);
             chargeIndicator.transform.localRotation = Quaternion.Euler(90, 0, 0);
             chargeIndicator.layer = LayerUtils.getWorldspaceUiLayer();
             chargeIndicator.SetActive(false);
@@ -315,6 +398,20 @@ namespace ValheimVRMod.Scripts {
             chargeIndicator.GetComponent<MeshRenderer>().reflectionProbeUsage = ReflectionProbeUsage.Off;
 
             Destroy(chargeIndicator.GetComponent<Collider>());
+
+            drawIndicator = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            drawIndicator.transform.SetParent(bowOrientation.transform);
+            drawIndicator.transform.localPosition = new Vector3(0, VHVRConfig.ArrowRestElevation() * 0.75f, 0);
+            drawIndicator.transform.localRotation = Quaternion.Euler(90, 0, 0);
+            drawIndicator.layer = LayerUtils.getWorldspaceUiLayer();
+            drawIndicator.SetActive(false);
+            drawIndicator.GetComponent<MeshRenderer>().material.color = new Vector4(0.5f, 0.5f, 0, 0.5f);
+            drawIndicator.GetComponent<MeshRenderer>().receiveShadows = false;
+            drawIndicator.GetComponent<MeshRenderer>().shadowCastingMode = ShadowCastingMode.Off;
+            drawIndicator.GetComponent<MeshRenderer>().lightProbeUsage = LightProbeUsage.Off;
+            drawIndicator.GetComponent<MeshRenderer>().reflectionProbeUsage = ReflectionProbeUsage.Off;
+
+            Destroy(drawIndicator.GetComponent<Collider>());
         }
 
         private GameObject findTrail(Transform transform) {
@@ -335,6 +432,10 @@ namespace ValheimVRMod.Scripts {
 
         public bool isHoldingArrow() {
             return arrow != null;
+        }
+        public float GetAttackPercentage()
+        {
+            return attackDrawPercentage;
         }
     }
 }
