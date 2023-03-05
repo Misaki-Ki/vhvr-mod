@@ -1,12 +1,14 @@
 using System.Linq;
 using RootMotion.FinalIK;
 using UnityEngine;
+using ValheimVRMod.Scripts;
 using ValheimVRMod.Utilities;
+using ValheimVRMod.VRCore;
 
 using static ValheimVRMod.Utilities.LogUtils;
 
 namespace ValheimVRMod.Scripts {
-    public class VRPlayerSync : MonoBehaviour {
+    public class VRPlayerSync : MonoBehaviour, WeaponWieldSync.TwoHandedStateProvider {
 
         private VRIK vrik;
         
@@ -15,6 +17,9 @@ namespace ValheimVRMod.Scripts {
         public GameObject camera = null;
         public GameObject rightHand = null;
         public GameObject leftHand = null;
+
+        private WeaponWield.TwoHandedState twoHandedState = WeaponWield.TwoHandedState.SingleHanded;
+        private bool isLeftHanded = false;
 
         private Vector3 ownerLastPositionCamera = Vector3.zero;
         private Vector3 ownerVelocityCamera = Vector3.zero;
@@ -45,6 +50,9 @@ namespace ValheimVRMod.Scripts {
         public GameObject currentLeftWeapon;
         public GameObject currentRightWeapon;
 
+        public int remotePlayerNonDominantHandItemHash;
+        public int remotePlayerDominantHandItemHash;
+
         private void Awake() {
             camera = new GameObject();
             rightHand = new GameObject();
@@ -70,6 +78,21 @@ namespace ValheimVRMod.Scripts {
                 clientSync(dt);
             }
         }
+
+        public WeaponWield.TwoHandedState GetTwoHandedState()
+        {
+            return twoHandedState;
+        }
+
+        public bool IsLeftHanded()
+        {
+            return isLeftHanded;
+        }
+        
+        public bool IsVrEnabled()
+        {
+            return vrik != null;
+        }        
 
         private void calculateOwnerVelocities(float dt)
         {
@@ -112,7 +135,7 @@ namespace ValheimVRMod.Scripts {
         // Transmit position, rotation, and velocity information to server
         private void ownerSync()
         {
-            if (!VHVRConfig.UseVrControls()) {
+            if (!VHVRConfig.UseVrControls() || VRPlayer.ShouldPauseMovement) {
                 return;
             }
 
@@ -123,6 +146,8 @@ namespace ValheimVRMod.Scripts {
             writeFingers(pkg, GetComponent<VRIK>().references.leftHand);
             writeFingers(pkg, GetComponent<VRIK>().references.rightHand);
             pkg.Write(BowLocalManager.instance != null && BowLocalManager.instance.pulling);
+            pkg.Write(isLeftHanded = VHVRConfig.LeftHanded());
+            pkg.Write((byte) (twoHandedState = LocalWeaponWield.LocalPlayerTwoHandedState));
 
             GetComponent<ZNetView>().GetZDO().Set("vr_data", pkg.GetArray());
         }
@@ -168,6 +193,8 @@ namespace ValheimVRMod.Scripts {
             hasTempRelPos = true;
             readFingers(pkg);
             maybePullBow(pkg.ReadBool());
+            isLeftHanded = pkg.ReadBool();
+            twoHandedState = (WeaponWield.TwoHandedState) pkg.ReadByte();
         }
 
         private void maybePullBow(bool pulling) {
@@ -178,7 +205,7 @@ namespace ValheimVRMod.Scripts {
                 }
                 
                 bowManager = currentLeftWeapon.AddComponent<BowManager>();
-                bowManager.mainHand = VHVRConfig.LeftHanded() ? leftHand.transform : rightHand.transform;
+                bowManager.mainHand = isLeftHanded ? leftHand.transform : rightHand.transform;
             }
 
             bowManager.pulling = pulling;

@@ -1,4 +1,4 @@
-﻿using static ValheimVRMod.Utilities.LogUtils;
+using static ValheimVRMod.Utilities.LogUtils;
 
 using AmplifyOcclusion;
 using System;
@@ -7,6 +7,7 @@ using RootMotion.FinalIK;
 using UnityEngine;
 using UnityEngine.PostProcessing;
 using UnityEngine.SceneManagement;
+using UnityEngine.SpatialTracking;
 using UnityStandardAssets.ImageEffects;
 using ValheimVRMod.Scripts;
 using ValheimVRMod.Patches;
@@ -16,6 +17,7 @@ using Valve.VR;
 using Valve.VR.Extras;
 using Valve.VR.InteractionSystem;
 using Pose = ValheimVRMod.Utilities.Pose;
+using ValheimVRMod.Scripts.Block;
 
 /**
  * VRPlayer manages instantiating the SteamVR Player
@@ -47,6 +49,7 @@ namespace ValheimVRMod.VRCore
         // the hands won't be rendered by the handsCam.
         private static Vector3 FIRST_PERSON_OFFSET = Vector3.zero;
         private static float SIT_HEIGHT_ADJUST = -0.7f;
+        private static float SIT_ATTACH_HEIGHT_ADJUST = -0.4f;
         private static float CROUCH_HEIGHT_ADJUST = -0.4f;
         private static Vector3 THIRD_PERSON_0_OFFSET = new Vector3(0f, 1.0f, -0.6f);
         private static Vector3 THIRD_PERSON_1_OFFSET = new Vector3(0f, 1.4f, -1.5f);
@@ -100,8 +103,60 @@ namespace ValheimVRMod.VRCore
         private static SteamVR_LaserPointer _rightPointer;
         private string _preferredHand;
 
+        private Quaternion headRotationBeforeDodge;
+        private Transform dodgingHeadOrientation;
+        private bool wasDodging = false;
+        private bool pausedMovement = false;
+
+        private float timerLeft;
+        private float timerRight;
         public static Hand leftHand { get { return _leftHand; } }
         public static Hand rightHand { get { return _rightHand; } }
+        public static Hand dominantHand { get { return VHVRConfig.LeftHanded() ? leftHand : rightHand; } }
+        public static bool ShouldPauseMovement { get { return Menu.IsVisible() && !VHVRConfig.AllowMovementWhenInMenu(); } }
+        public static bool IsClickableGuiOpen
+        {
+            get {
+                return
+                    Hud.IsPieceSelectionVisible() ||
+                    StoreGui.IsVisible() ||
+                    InventoryGui.IsVisible() ||
+                    Menu.IsVisible() ||
+                    (TextViewer.instance && TextViewer.instance.IsVisible()) ||
+                    Minimap.IsOpen();
+            }
+        }
+
+        public static PhysicsEstimator leftHandPhysicsEstimator
+        {
+            get
+            {
+                PhysicsEstimator value = leftHand.gameObject.GetComponent<PhysicsEstimator>();
+                if (value == null && attachedToPlayer)
+                {
+                    value = leftHand.gameObject.AddComponent<PhysicsEstimator>();
+                    value.refTransform = CameraUtils.getCamera(CameraUtils.VR_CAMERA)?.transform.parent;
+                }
+                return value;
+            }
+        }
+
+        public static PhysicsEstimator rightHandPhysicsEstimator
+        {
+            get
+            {
+                PhysicsEstimator value = rightHand.gameObject.GetComponent<PhysicsEstimator>();
+                if (value == null && attachedToPlayer)
+                {
+                    value = rightHand.gameObject.AddComponent<PhysicsEstimator>();
+                    value.refTransform = CameraUtils.getCamera(CameraUtils.VR_CAMERA)?.transform.parent;
+                }
+                return value;
+            }
+        }
+
+        public static SteamVR_Input_Sources dominantHandInputSource { get { return VHVRConfig.LeftHanded() ? SteamVR_Input_Sources.LeftHand : SteamVR_Input_Sources.RightHand; } }
+        public static SteamVR_Input_Sources nonDominantHandInputSource { get { return VHVRConfig.LeftHanded() ? SteamVR_Input_Sources.RightHand : SteamVR_Input_Sources.LeftHand; } }
 
         public static bool handsActive
         {
@@ -203,20 +258,78 @@ namespace ValheimVRMod.VRCore
             enableCameras();
             checkAndSetHandsAndPointers();
             updateVrik();
-            UpdateAmplifyOcclusionStatus(_vrCamera);
-            UpdateAmplifyOcclusionStatus(_spectatorCam);
+            // When dodge starts, we need to make sure that updateVrik() has been called first so that the head is no longer controlled by Vrik before doing any dodge-related camera rotation.
+            maybeMoveVRPlayerDuringDodge();
+            UpdateAmplifyOcclusionStatus();
             Pose.checkInteractions();
             CheckSneakRoomscale();
 
+            if (timerLeft > 0)
+            {
+                timerLeft -= Time.deltaTime;
+                leftHand.hapticAction.Execute(0f, 0.1f, 20f, 0.1f, SteamVR_Input_Sources.LeftHand);
+            }
+            if (timerRight > 0)
+            {
+                timerRight -= Time.deltaTime;
+                rightHand.hapticAction.Execute(0f, 0.1f, 20f, 0.1f, SteamVR_Input_Sources.RightHand);
+            }
         }
 
-        private void FixedUpdate()
+        void OnDestroy()
         {
-            if (inFirstPerson)
+            if (dodgingHeadOrientation != null)
             {
-                DoRoomScaleMovement();
+                Destroy(dodgingHeadOrientation.gameObject);
             }
-            else roomscaleMovement = Vector3.zero;
+        }
+
+        private void FixedUpdate() 
+        {
+            if (ShouldPauseMovement)
+            {
+                if (vrikEnabled() && !pausedMovement)
+                {
+                    VrikCreator.PauseLocalPlayerVrik();
+                    pausedMovement = true;
+                }
+            }
+            else
+            {
+                if (vrikEnabled() && pausedMovement)
+                {
+                    // Before unpausing, move the camera back to the position before the pause to prevent teleporting the player to the cuurent camera position.
+                    _vrCameraRig.localPosition -= Vector3.ProjectOnPlane(_vrCam.transform.localPosition - _lastCamPosition, Vector3.up);
+                    _lastCamPosition = _vrCam.transform.localPosition;
+                    VrikCreator.UnpauseLocalPlayerVrik();
+                    pausedMovement = false;
+                }
+                if (inFirstPerson)
+                {
+                    DoRoomScaleMovement();
+                }
+                else
+                {
+                    roomscaleMovement = Vector3.zero;
+                }
+            }
+        }
+
+        // Fixes an issue on Pimax HMDs that causes rotation to be incorrect:
+        // See: https://www.reddit.com/r/Pimax/comments/qhkrfp/pimax_unity_xr_plugin_issue/
+        private static void UpdateTrackedPoseDriverPoseSource()
+        {
+            var hmd = Valve.VR.InteractionSystem.Player.instance.hmdTransform;
+            var trackedPoseDriver = hmd.gameObject.GetComponent<TrackedPoseDriver>();
+            if (trackedPoseDriver == null)
+            {
+                LogWarning("Null TrackedPoseDriver on HMD transform.");
+            }
+            else
+            {
+                LogInfo("Setting TrackedPoseDriver.poseSource to Head.");
+                trackedPoseDriver.SetPoseSource(trackedPoseDriver.deviceType, TrackedPoseDriver.TrackedPose.Head);
+            }
         }
 
         void maybeUpdateHeadPosition()
@@ -418,6 +531,7 @@ namespace ValheimVRMod.VRCore
                 if (_instance != null)
                 {
                     DisableRigidBodies(_instance);
+                    UpdateTrackedPoseDriverPoseSource();
                 }
             }
             return _instance != null;
@@ -428,6 +542,9 @@ namespace ValheimVRMod.VRCore
             if (camera == null || !camera.enabled)
             {
                 enableVrCamera();
+            } else
+            {
+                _vrCam.nearClipPlane = VHVRConfig.GetNearClipPlane();
             }
             if (_handsCam == null || !_handsCam.enabled)
             {
@@ -706,14 +823,12 @@ namespace ValheimVRMod.VRCore
         // Some logic from GameCamera class
         private bool canAdjustCameraDistance()
         {
-            return (!Chat.instance || !Chat.instance.HasFocus()) &&
-                    !Console.IsVisible() &&
-                    !InventoryGui.IsVisible() &&
-                    !StoreGui.IsVisible() &&
-                    !Menu.IsVisible() &&
-                    !Minimap.IsOpen() &&
-                    attachedToPlayer &&
-                    !getPlayerCharacter().InCutscene() ? !getPlayerCharacter().InPlaceMode() : false;
+            return !IsClickableGuiOpen &&
+                (!Chat.instance || !Chat.instance.HasFocus()) &&
+                !Console.IsVisible() &&
+                attachedToPlayer &&
+                !getPlayerCharacter().InCutscene() &&
+                !getPlayerCharacter().InPlaceMode();
         }
 
         private bool shouldAttachToPlayerCharacter()
@@ -741,6 +856,9 @@ namespace ValheimVRMod.VRCore
             }
             _instance.transform.SetParent(playerCharacter.transform, false);
             attachedToPlayer = true;
+
+            maybeExitDodge();
+
             maybeInitHeadPosition(playerCharacter);
             float firstPersonAdjust = inFirstPerson ? FIRST_PERSON_HEIGHT_OFFSET : 0.0f;
             setHeadVisibility(!inFirstPerson);
@@ -779,7 +897,14 @@ namespace ValheimVRMod.VRCore
         {
             if (player.IsSitting())
             {
-                return SIT_HEIGHT_ADJUST;
+                if (player.IsAttached())
+                {
+                    return SIT_ATTACH_HEIGHT_ADJUST;
+                }
+                else
+                {
+                    return SIT_HEIGHT_ADJUST;
+                }
             }
             if (player.IsCrouching() && Player_SetControls_SneakPatch.isJoystickSneaking)
             {
@@ -800,8 +925,68 @@ namespace ValheimVRMod.VRCore
             {
                 _vrik.enabled = VHVRConfig.UseVrControls() &&
                     inFirstPerson &&
+                    !player.InDodge() &&
+                    !player.IsStaggering() &&
+                    !player.IsSleeping() &&
                     validVrikAnimatorState(player.GetComponentInChildren<Animator>());
+                LeftHandQuickMenu.instance.UpdateWristBar();
+                RightHandQuickMenu.instance.UpdateWristBar();
             }
+        }
+
+        private Transform ensureDodgingHeadOrientation()
+        {
+            if (dodgingHeadOrientation == null)
+            {
+                dodgingHeadOrientation = new GameObject().transform;
+                dodgingHeadOrientation.parent = getHeadBone();
+            }
+            return dodgingHeadOrientation;
+        }
+
+        private void maybeExitDodge()
+        {
+            if (getPlayerCharacter() != null && !getPlayerCharacter().InDodge() && wasDodging)
+            {
+                if (attachedToPlayer)
+                {
+                    _instance.transform.localRotation = headRotationBeforeDodge;
+                }
+                wasDodging = false;
+            }
+        }
+
+        private void maybeMoveVRPlayerDuringDodge() {
+            if (getPlayerCharacter() == null || !getPlayerCharacter().InDodge())
+            {
+                return;
+            }
+            
+            if (!wasDodging)
+            {
+                headRotationBeforeDodge = _instance.transform.localRotation;
+                ensureDodgingHeadOrientation().SetPositionAndRotation(_instance.transform.position, _instance.transform.rotation);
+                wasDodging = true;
+            }
+            else if (attachedToPlayer && VHVRConfig.ImmersiveDodgeRoll())
+            {
+                float smoothener = GetDodgeExitSmoothener();
+                
+                // Head bone and Player#m_head has different scales than the player, therefore directly parenting the camera to them should be avoided lest it changes the appeared scale of the world.
+                Vector3 nonDodgingHeadPosition = _instance.transform.position;
+                _instance.transform.position = Vector3.Lerp(ensureDodgingHeadOrientation().position, nonDodgingHeadPosition, smoothener);
+
+                _instance.transform.rotation = ensureDodgingHeadOrientation().rotation;
+                Quaternion fullDodgeHeadRotation = _instance.transform.localRotation;
+                _instance.transform.localRotation = Quaternion.Slerp(fullDodgeHeadRotation, headRotationBeforeDodge, smoothener);
+            }
+        }
+
+        // The camera transform at the end of a dodge roll animation may not be the same as its non-dodging equivalent so we need to use a lerp to ensure an smooth exit.
+        private float GetDodgeExitSmoothener()
+        {
+            float threshold = 0.3f;
+            return UpdateDodgeVr.currdodgetimer > threshold ? 0 : (threshold - UpdateDodgeVr.currdodgetimer) / threshold;
         }
 
         private bool validVrikAnimatorState(Animator animator)
@@ -824,16 +1009,18 @@ namespace ValheimVRMod.VRCore
                 leftHand.transform, rightHand.transform, cam.transform);
             var vrPlayerSync = player.gameObject.GetComponent<VRPlayerSync>();
             vrPlayerSync.camera = cam.gameObject;
-            vrPlayerSync.leftHand = leftHand.gameObject;
-            vrPlayerSync.rightHand = rightHand.gameObject;
+            vrPlayerSync.leftHand = _vrik.solver.leftArm.target.parent.gameObject;
+            vrPlayerSync.rightHand = _vrik.solver.rightArm.target.parent.gameObject;
             VrikCreator.resetVrikHandTransform(player);
             _vrik.references.leftHand.gameObject.AddComponent<HandGesture>().sourceHand = leftHand;
             _vrik.references.rightHand.gameObject.AddComponent<HandGesture>().sourceHand = rightHand;
             StaticObjects.leftFist().setColliderParent(_vrik.references.leftHand, false);
             StaticObjects.rightFist().setColliderParent(_vrik.references.rightHand, true);
+            Player.m_localPlayer.gameObject.AddComponent<FistBlock>();
             StaticObjects.mouthCollider(cam.transform);
-            StaticObjects.addQuickActions(VHVRConfig.LeftHanded() ? rightHand.transform : leftHand.transform);
-            StaticObjects.addQuickSwitch(VHVRConfig.LeftHanded() ? leftHand.transform : rightHand.transform);
+            StaticObjects.addQuickMenus();
+            LeftHandQuickMenu.instance.refreshItems();
+            RightHandQuickMenu.instance.refreshItems();
         }
 
         private bool vrikEnabled()
@@ -853,7 +1040,7 @@ namespace ValheimVRMod.VRCore
 
         private void maybeInitHeadPosition(Player playerCharacter)
         {
-            if (!headPositionInitialized && inFirstPerson)
+            if (!headPositionInitialized && inFirstPerson && !playerCharacter.InDodge())
             {
                 // First set the position without any adjustment
                 Vector3 desiredPosition = getDesiredPosition(playerCharacter);
@@ -1105,9 +1292,8 @@ namespace ValheimVRMod.VRCore
                 var globalDeltaPosition = _instance.transform.TransformVector(deltaPosition);
                 globalDeltaPosition.y = 0;
                 roomscaleMovement = globalDeltaPosition;
-                _vrCameraRig.localPosition -= deltaPosition;
-            }
-            else roomscaleMovement = Vector3.zero;
+                _vrCameraRig.localPosition -= deltaPosition; // Since we move the VR camera rig with the player character elsewhere, we counteract that here to prevent it from moving.
+            } else roomscaleMovement = Vector3.zero;
 
             //Set animation parameters
             _roomscaleAnimationForwardSpeed = Mathf.SmoothDamp(_roomscaleAnimationForwardSpeed, shouldMove ? deltaPosition.z / Time.fixedDeltaTime : 0, ref _forwardSmoothVel, ROOMSCALE_STEP_ANIMATION_SMOOTHING, 99f);
@@ -1122,6 +1308,12 @@ namespace ValheimVRMod.VRCore
                 vrCamPosition.y = 0;
                 _vrCameraRig.localPosition = -vrCamPosition;
             }
+        }
+
+        public void TriggerHandVibration(float time)
+        {
+            timerLeft = time;
+            timerRight = time;
         }
     }
 }
