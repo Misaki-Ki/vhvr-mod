@@ -8,7 +8,8 @@ using UnityEngine;
 namespace ValheimVRMod.Utilities
 {
 
-    static class VHVRConfig {
+    static class VHVRConfig
+    {
 
         public static ConfigFile config;
 
@@ -140,7 +141,8 @@ namespace ValheimVRMod.Utilities
         private static ConfigEntry<bool> crossbowManualReload;
         private static ConfigEntry<string> blockingType;
 
-        // Spectator Camera Settings
+
+        // FPV and Spectator Camera
         private static ConfigEntry<bool> useSpectatorCamera;
         private static ConfigEntry<bool> hideSpecUI;
         private static ConfigEntry<float> fpvCamFOV;
@@ -150,19 +152,6 @@ namespace ValheimVRMod.Utilities
         private static ConfigEntry<float> fpvCamXPositionOffset;
         private static ConfigEntry<float> fpvCamYPositionOffset;
         private static ConfigEntry<float> fpvCamZPositionOffset;
-
-
-        // Spectator Camera Settings
-        private static ConfigEntry<bool> useSpectatorCamera;
-        private static ConfigEntry<bool> hideSpecUI;
-        private static ConfigEntry<float> fpvCamFOV;
-        private static ConfigEntry<float> fpvCamNearClipPlane;
-        private static ConfigEntry<float> fpvCamPositionDampening;
-        private static ConfigEntry<float> fpvCamRotationDampening;
-        private static ConfigEntry<float> fpvCamXPositionOffset;
-        private static ConfigEntry<float> fpvCamYPositionOffset;
-        private static ConfigEntry<float> fpvCamZPositionOffset;
-
 
 #if DEBUG
         private static ConfigEntry<float> DebugPosX;
@@ -181,7 +170,8 @@ namespace ValheimVRMod.Utilities
         private const string k_arrowRestAsiatic = "Asiatic";
         private const string k_arrowRestMediterranean = "Mediterranean";
 
-        public static void InitializeConfiguration(ConfigFile mConfig) {
+        public static void InitializeConfiguration(ConfigFile mConfig)
+        {
 
             config = mConfig;
             InitializeImmutableSettings();
@@ -718,11 +708,12 @@ namespace ValheimVRMod.Utilities
                                   "None",
                                   new ConfigDescription(
                                       "Whether the glowing effect of the bow (if any in the Vanilla game) should be enabled. Disable it if you find the glow affects you aim negatively.",
-                                      new AcceptableValueList<string>(new string[] {"None", "LightWithoutParticles", "Full"})));
+                                      new AcceptableValueList<string>(new string[] { "None", "LightWithoutParticles", "Full" })));
 
         }
 
-        private static void InitializeMotionControlSettings() {
+        private static void InitializeMotionControlSettings()
+        {
             //Bow Changes
             useArrowPredictionGraphic = config.Bind("Motion Control",
                 "UseArrowPredictionGraphic",
@@ -1227,15 +1218,13 @@ namespace ValheimVRMod.Utilities
             return unlockDesktopCursor.Value;
         }
 
-        public static string getQuickMenuType() {
+        public static string getQuickMenuType()
+        {
             return QuickMenuType.Value;
         }
         public static int getQuickMenuVerticalAngle()
         {
             return QuickMenuVerticalAngle.Value;
-        public static bool getQuickMenuFollowCam()
-        {
-            return QuickMenuFollowCam.Value;
         }
 
         public static bool GetQuickMenuIsSeperate()
@@ -1557,41 +1546,8 @@ namespace ValheimVRMod.Utilities
             return bowFullDrawLength.Value;
         }
         public static float GetBowStaminaScalar()
-        // Spectator Camera Getters
-
-        public static bool UseSpectatorCamera()
         {
-            return useSpectatorCamera.Value;
-        }
-
-        public static bool HideSpecUI()
-        {
-            return hideSpecUI.Value;
-        }
-
-        //FPV
-        public static float GetfpvCamFOV()
-        {
-            return fpvCamFOV.Value;
-        }
-        public static float GetfpvCamNearClipPlane()
-        {
-            return fpvCamNearClipPlane.Value;
-        }
-
-        public static float GetfpvCamPositionDampening()
-        {
-            return fpvCamPositionDampening.Value;
-        }
-
-        public static float GetfpvCamRotationDampening()
-        {
-            return fpvCamRotationDampening.Value;
-        }
-
-        public static Vector3 GetfpvCamZPositionOffset()
-        {
-            return new Vector3(fpvCamXPositionOffset.Value, fpvCamYPositionOffset.Value, fpvCamZPositionOffset.Value);
+            return bowStaminaAdjust.Value;
         }
 
         public static bool IsShipImmersiveCamera()
@@ -1624,5 +1580,40 @@ namespace ValheimVRMod.Utilities
             return smoothTurnSpeed.Value;
         }
 
+        // Spectator Camera Getters
+
+        public static bool UseSpectatorCamera()
+        {
+            return useSpectatorCamera.Value;
+        }
+
+        public static bool HideSpecUI()
+        {
+            return hideSpecUI.Value;
+        }
+        //FPV
+        public static float GetfpvCamFOV()
+        {
+            return fpvCamFOV.Value;
+        }
+        public static float GetfpvCamNearClipPlane()
+        {
+            return fpvCamNearClipPlane.Value;
+        }
+
+        public static float GetfpvCamPositionDampening()
+        {
+            return fpvCamPositionDampening.Value;
+        }
+
+        public static float GetfpvCamRotationDampening()
+        {
+            return fpvCamRotationDampening.Value;
+        }
+
+        public static Vector3 GetfpvCamZPositionOffset()
+        {
+            return new Vector3(fpvCamXPositionOffset.Value, fpvCamYPositionOffset.Value, fpvCamZPositionOffset.Value);
+        }
     }
 }

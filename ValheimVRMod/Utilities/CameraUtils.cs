@@ -14,7 +14,7 @@ namespace ValheimVRMod.Utilities
         public const string HANDS_CAMERA = "VRHandsCamera";
         public const string SPECTATOR_CAMERA = "SpectatorCamera";
         public const string SPECTATOR_UI_CAMERA = "SpectatorUICamera";
-        public const string SKYBOX_CAMERA = "SkyboxCamera";
+        public const string SKYBOX_CAMERA = "SkyAlphaCamera";
         public const string VRSKYBOX_CAMERA = "VRSkyboxCamera";
         public const string SPECTATOR_SKYBOX_CAMERA = "SpectatorSkyboxCamera";
         public const string VRGUI_SCREENSPACE_CAM = "VRGuiScreenSpace";

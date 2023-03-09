@@ -1,5 +1,4 @@
 ﻿using static ValheimVRMod.Utilities.LogUtils;
-using static ValheimVRMod.Patches.MeshHider;
 
 using UnityEngine;
 using System.Collections.Generic;
@@ -153,6 +152,7 @@ namespace ValheimVRMod.Scripts
             specatorCameraSet.Add(_followCam);
             specatorCameraSet.Add(_specSkyboxCamera);
 
+            LogDebug("Spectator Camera Initalized.");
         }
 
         private void createUiPanelCamera()
@@ -172,7 +172,7 @@ namespace ValheimVRMod.Scripts
 
         private void CreateWorldSpaceSpecUICamera()
         {
-            Camera worldSpaceUiCamera = CameraUtils.getCamera(CameraUtils.WORLD_SPACE_UI_CAMERA);
+            Camera worldSpaceUiCamera = CameraUtils.getWorldspaceUiCamera();
 
             if (worldSpaceUiCamera != null)
             {
