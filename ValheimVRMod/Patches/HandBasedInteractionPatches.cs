@@ -10,6 +10,7 @@ using Valve.VR;
 using UnityEngine.UI;
 
 using static ValheimVRMod.Utilities.LogUtils;
+using TMPro;
 
 namespace ValheimVRMod.Patches
 {
@@ -82,7 +83,7 @@ namespace ValheimVRMod.Patches
                 {
                     hoverable = null;
                 }
-                Text hoverText = CrosshairManager.instance.hoverNameCloneLeftHand.GetComponent<Text>();
+                TextMeshProUGUI hoverText = CrosshairManager.instance.hoverNameCloneLeftHand.GetComponent<TextMeshProUGUI>();
                 Image crosshair = CrosshairManager.instance.crosshairCloneLeftHand.GetComponent<Image>();
                 if (hoverText == null)
                 {
@@ -130,12 +131,10 @@ namespace ValheimVRMod.Patches
                     {
                         __instance.Interact(leftHover, true, false);
                     }
-                } else if (leftHover)
+                }
+                else if (leftHover)
                 {
                     __instance.Interact(leftHover, false, false);
-                } else if (___m_doodadController != null)
-                {
-                    __instance.StopDoodadControl();
                 }
             }
         }
@@ -190,8 +189,8 @@ namespace ValheimVRMod.Patches
                             hoverReference = raycastHit.collider.gameObject;
                             return;
                         }
-                        //MoveableBase is the gameobject name for Valheim Raft Mod object
-                        if (raycastHit.collider.attachedRigidbody && raycastHit.collider.attachedRigidbody.name == "MoveableBase")
+                        //MovableBase is the gameobject name for Valheim Raft Mod object
+                        if (raycastHit.collider.attachedRigidbody && raycastHit.collider.attachedRigidbody.name == "MovableBase")
                         {
                             hoverReference = raycastHit.collider.gameObject;
                             return;

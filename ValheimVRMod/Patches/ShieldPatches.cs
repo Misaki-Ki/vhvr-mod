@@ -16,8 +16,6 @@ namespace ValheimVRMod.Patches {
     [HarmonyPatch(typeof(Humanoid), "BlockAttack")]
     class PatchBlockAttack {
         
-        private static Hand hand;
-        private static SteamVR_Input_Sources handSource;
         private static HandHapticTrigger handHapticTrigger = HandHapticTrigger.None;
         private enum HandHapticTrigger
         {
@@ -35,11 +33,11 @@ namespace ValheimVRMod.Patches {
 
             if(VHVRConfig.BlockingType() != "GrabButton")
             {
-                if (FistCollision.instance.usingFistWeapon())
+                if (StaticObjects.leftFist().blockingWithFist() || StaticObjects.rightFist().blockingWithFist())
                 {
                     ___m_blockTimer = FistBlock.instance?.blockTimer ?? Block.blockTimerNonParry;
                 }
-                else if (WeaponBlock.instance && (WeaponBlock.instance.weaponWield.allowBlocking() || WeaponBlock.instance.weaponWield.isLeftHandWeapon()))
+                else if (WeaponBlock.instance && (WeaponBlock.instance.weaponWield.allowBlocking() || LocalWeaponWield.nonDominantHandHasWeapon()))
                 {
                     ___m_blockTimer = WeaponBlock.instance?.blockTimer ?? Block.blockTimerNonParry;
                 }

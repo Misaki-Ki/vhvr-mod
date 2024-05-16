@@ -1,11 +1,14 @@
 using System.Text;
 using System.Threading;
+using GUIFramework;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
+using ValheimVRMod.Patches;
 using ValheimVRMod.Utilities;
 using Valve.VR;
+using TMPro;
 
 namespace ValheimVRMod.Patches {
 
@@ -19,43 +22,73 @@ namespace ValheimVRMod.Patches {
                 instance = __instance;
                 if (VHVRConfig.AutoOpenKeyboardOnInteract() || instance.m_topic.text == "ChatText")
                 {
-                    InputManager.start(instance.m_textField, true, OnClose);
+                    InputManager.start(
+                        null, null, instance.m_inputField, returnOnClose: instance.m_topic.text != "ChatText", OnClose);
                 }
             }
         }
 
         private static void OnClose() {
-            instance.Hide();
+            instance.OnEnter();
         }
     }
     
     [HarmonyPatch(typeof(InputField), "OnPointerClick")]
-    class PatchInputFieldClick {
-        public static void Postfix(InputField __instance) {
-            if (VHVRConfig.UseVrControls()) {
-                InputManager.start(__instance);
+    class PatchInputFieldClick
+    {
+        public static void Postfix(InputField __instance)
+        {
+            if (VHVRConfig.UseVrControls())
+            {
+                InputManager.start(__instance, null, null);
             }
         }
     }
 
-    [HarmonyPatch(typeof(InputField), "OnFocus")]
-    class PatchPasswordFieldFocus {
-        public static void Postfix(InputField __instance) {
-            if(VHVRConfig.UseVrControls() && __instance.inputType == InputField.InputType.Password) {
-                InputManager.start(__instance, true);
+    [HarmonyPatch(typeof(TMP_InputField), "OnPointerClick")]
+    class PatchInputFieldTmpClick {
+        public static void Postfix(TMP_InputField __instance) {
+            if (VHVRConfig.UseVrControls()) {
+                InputManager.start(null, __instance, null);
             }
         }
     }
-    
+
+
+    [HarmonyPatch(typeof(TMP_InputField), "OnFocus")]
+    class PatchPasswordFieldFocus
+    {
+        static private TMP_InputField passwordInputField;
+        public static void Postfix(TMP_InputField __instance)
+        {
+            if (VHVRConfig.UseVrControls() && __instance.inputType == TMP_InputField.InputType.Password)
+            {
+                InputManager.start(null, __instance, null, false, OnClose);
+                passwordInputField = __instance;
+            }
+        }
+
+        private static void OnClose()
+        {
+            passwordInputField.OnSubmit(null);
+        }
+
+    }
+
     [HarmonyPatch(typeof(Minimap), "ShowPinNameInput")]
     class PatchMinimap {
-        public static void Postfix(InputField ___m_nameInput) {
+        public static void Postfix(Minimap __instance) {
             if (VHVRConfig.UseVrControls()) {
-                InputManager.start(___m_nameInput, true);
+                InputManager.start(null, null, __instance.m_nameInput, returnOnClose: false, OnClose);
             }
         }
+
+        private static void OnClose()
+        {
+            Minimap.m_instance.m_nameInput.OnSubmit(null);
+        }
     }
-    
+
     [HarmonyPatch(typeof(Player), "Interact")]
     class PatchPlayerInteract {
         public static bool Prefix() {
@@ -82,52 +115,83 @@ namespace ValheimVRMod.Patches {
 
         private static bool initialized;
         private static InputField _inputField;
+        private static TMP_InputField _inputFieldTmp;
+        private static GuiInputField _inputFieldGui; 
         private static UnityAction _closedAction;
         private static bool _returnOnClose;
         
         public static float closeTime;
         public static bool triggerReturn;
 
-        public static void start(InputField inputField, bool returnOnClose = false, UnityAction closedAction = null) {
-
+        public static void start(InputField inputField, TMP_InputField inputFieldTmp, GuiInputField inputFieldGui, bool returnOnClose = false, UnityAction closedAction = null) {
+            // TODO: consider enforcing the check that one and only one among inputField, inputFieldGui, and inputFieldTmp is non-null.
             _inputField = inputField;
+            _inputFieldGui = inputFieldGui;
+            _inputFieldTmp = inputFieldTmp;
             _returnOnClose = returnOnClose;
             _closedAction = closedAction;
             
-            if (_inputField.text == "...") {
+            if (_inputField != null && _inputField.text == "...") {
                 _inputField.text = "";
             }
-            
+
+            if (_inputFieldTmp != null && _inputFieldTmp.text == "...")
+            {
+                _inputFieldTmp.text = "";
+            }
+
+            if (_inputFieldGui != null && _inputFieldGui.text == "...") {
+                _inputFieldGui.text = "";
+            }
+
             if (!initialized) {
                 SteamVR_Events.System(EVREventType.VREvent_KeyboardClosed).Listen(OnKeyboardClosed);
                 initialized = true;
             }
             
-            SteamVR.instance.overlay.ShowKeyboard(0, 0, 0, "TextInput", 256, _inputField.text, 1);
+            SteamVR.instance.overlay.ShowKeyboard(0, 0, 0, "TextInput", 256, _inputField != null ? _inputField.text : _inputFieldTmp != null ? _inputFieldTmp.text : _inputFieldGui.text, 1);
         }
 
         private static void OnKeyboardClosed(VREvent_t args) {
             closeTime = Time.fixedTime;
-            StringBuilder text = new StringBuilder(256);
-            _inputField.caretPosition = (int) SteamVR.instance.overlay.GetKeyboardText(text, 256);
-            _inputField.text = text.ToString();
+            StringBuilder textBuilder = new StringBuilder(256);
+            int caretPosition = (int)SteamVR.instance.overlay.GetKeyboardText(textBuilder, 256);
+            string text = textBuilder.ToString();
+
+            if (_inputField)
+            {
+                _inputField.caretPosition = caretPosition;
+                _inputField.text = text;
+            }
+
+            if (_inputFieldTmp)
+            {
+                _inputFieldTmp.caretPosition = caretPosition;
+                _inputFieldTmp.text = text;
+            }
+
+            if (_inputFieldGui)
+            {
+                _inputFieldGui.caretPosition = caretPosition;
+                _inputFieldGui.text = text;
+            }
 
             if (Scripts.QuickAbstract.shouldStartChat)
             {
-                if (_inputField.text != "")
+                if (text != "")
                 {
-                    if (_inputField.text.StartsWith("/cmd")) //SEND CONSOLE INPUT
+                    if (text.StartsWith("/cmd")) //SEND CONSOLE INPUT
                     {
-                        if (_inputField.text.StartsWith("/cmd "))
-                            _inputField.text = _inputField.text.Remove(0, 5);
+                        if (text.StartsWith("/cmd "))
+                            text = text.Remove(0, 5);
                         else
-                            _inputField.text = _inputField.text.Remove(0, 4);
+                            text = text.Remove(0, 4);
 
-                        Console.instance.TryRunCommand(_inputField.text);
+                        Console.instance.TryRunCommand(text);
                     }
                     else //SEND CHAT INPUT
                     {
-                        Chat.instance.m_input.text = _inputField.text;
+                        Chat.instance.m_input.text = text;
                         Chat.instance.InputText();
                         Chat.instance.m_input.text = "";
                     }
@@ -136,6 +200,12 @@ namespace ValheimVRMod.Patches {
             Scripts.QuickAbstract.shouldStartChat = false;
 
             triggerReturn = _returnOnClose;
+
+            // If return is to be triggered, we will wait until then to fire close action.
+            if (!_returnOnClose)
+            {
+                _closedAction?.Invoke();
+            }
         }
 
         public static bool handleReturnKeyInput(ref bool result, KeyCode key) {

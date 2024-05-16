@@ -15,7 +15,19 @@ namespace ValheimVRMod.Patches {
 
     [HarmonyPatch(typeof(ZInput), nameof(ZInput.GetButtonDown))]
     class ZInput_GetButtonDown_Patch {
+        private static HashSet<string> pendingButtons = new HashSet<string>();
+
+        static public void EmulateButtonDown(string name)
+        {
+            pendingButtons.Add(name);
+        }
+
         static bool Prefix(string name, ref bool __result) {
+            if (pendingButtons.Remove(name)) {
+                __result = true;
+                return false;
+            }
+
             // Need to bypass original function for any required ZInputs that begin
             // with "Joy" to ensure the VR Controls still work when
             // Gamepad is disabled.
@@ -59,6 +71,27 @@ namespace ValheimVRMod.Patches {
         }
     }
 
+    [HarmonyPatch(typeof(ZInput), nameof(ZInput.GetKeyDown))]
+    class ZInput_GetKeyDown_Patch
+    {
+        private static HashSet<KeyCode> pendingKeys = new HashSet<KeyCode>();
+
+        static public void EmulateKeyDown(KeyCode key)
+        {
+            pendingKeys.Add(key);
+        }
+
+        static bool Prefix(KeyCode key, ref bool __result)
+        {
+            if (pendingKeys.Remove(key))
+            {
+                __result = true;
+                return false;
+            }
+            return true;
+        }
+    }
+
     [HarmonyPatch(typeof(ZInput), nameof(ZInput.GetJoyLeftStickX))]
     class ZInput_GetJoyLeftStickX_Patch {
         static void Postfix(ref float __result) {
@@ -73,7 +106,7 @@ namespace ValheimVRMod.Patches {
                         return;
                     }
                 }
-                __result = __result + VRControls.instance.GetJoyLeftStickX();
+                __result = __result + VRControls.instance.GetJoyLeftStickX() + (VRPlayer.gesturedLocomotionManager?.stickOutputX ?? 0);
             }
         }
     }
@@ -94,7 +127,7 @@ namespace ValheimVRMod.Patches {
                         return;
                     }
                 }
-                __result = __result + joystick;
+                __result = __result + joystick + (VRPlayer.gesturedLocomotionManager?.stickOutputY?? 0);
             }
         }
     }
@@ -103,8 +136,8 @@ namespace ValheimVRMod.Patches {
     class ZInput_GetJoyRightStickX_Patch {
         static void Postfix(ref float __result) {
             if (VRControls.mainControlsActive) {
-                
-                if (ZInput_GetJoyRightStickY_Patch.isRunning 
+
+                if (ZInput_GetJoyRightStickY_Patch.hasRunInput 
                     && VRControls.instance.GetJoyRightStickX() > -0.5f 
                     && VRControls.instance.GetJoyRightStickX() < 0.5f)
                 {
@@ -118,7 +151,7 @@ namespace ValheimVRMod.Patches {
                 {
                     return;
                 }
-                
+
                 __result = __result + VRControls.instance.GetJoyRightStickX();
             }
         }
@@ -131,18 +164,60 @@ namespace ValheimVRMod.Patches {
         private const float TOGGLE_RUN_SENSITIVITY = -0.85f;
         private const float CROUCH_SENSITIVITY = 0.85f;
 
-        public static bool isCrouching;
-        public static bool isRunning;
+        public static bool togglingRun { get; private set; }
+        public static bool holdingRun { get; private set; }
+        public static bool hasRunInput { get; private set; }
+        public static bool isCrouching { get; private set; }
 
         static void Postfix(ref float __result) {
             if (VRControls.mainControlsActive) {
                 var joystick = VRControls.instance.GetJoyRightStickY();
 
-                isRunning = joystick < (VHVRConfig.ToggleRun() ? TOGGLE_RUN_SENSITIVITY : NON_TOGGLE_RUN_SENSITIVITY);
+                togglingRun = joystick < TOGGLE_RUN_SENSITIVITY;
+                holdingRun = joystick < NON_TOGGLE_RUN_SENSITIVITY;
+                hasRunInput = VHVRConfig.ToggleRun() ? togglingRun : holdingRun;
                 isCrouching = joystick > CROUCH_SENSITIVITY;
 
                 __result = __result + joystick;
             }
+        }
+    }
+
+    [HarmonyPatch(typeof(PlayerController), "LateUpdate")]
+    class PlayerController_LateUpdate_Patch
+    {
+        private static MethodInfo IsGamepadActive =
+             AccessTools.Method(typeof(ZInput), nameof(ZInput.IsGamepadActive));
+
+        private static bool IsGamepadActivePatched()
+        {
+            if (VHVRConfig.NonVrPlayer() || !VHVRConfig.UseVrControls())
+            {
+                return ZInput.IsGamepadActive();
+            }
+
+            // Make the vanilla game believe that the gamepad is active so that it will use ZInput.GetJoyRightStickX() which we patch to turn the player left/right.
+            return true;
+        }
+
+        static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            var original = new List<CodeInstruction>(instructions);
+            var patched = new List<CodeInstruction>();
+            foreach (var instruction in original)
+            {
+                if (instruction.Calls(IsGamepadActive))
+                {
+                    patched.Add(
+                        CodeInstruction.Call(typeof(PlayerController_LateUpdate_Patch), nameof(IsGamepadActivePatched)));
+                }
+                else
+                {
+                    patched.Add(instruction);
+                }
+            }
+
+            return patched;
         }
     }
 
@@ -178,6 +253,7 @@ namespace ValheimVRMod.Patches {
 
             if (BuildingManager.instance.isCurrentlyFreeMode())
             {
+                ___m_placementGhost.SetActive(true);
                 BuildingManager.instance.PrecisionUpdate(___m_placementGhost);
                 if (___m_placementMarkerInstance)
                 {
@@ -398,19 +474,28 @@ namespace ValheimVRMod.Patches {
             {
                 return;
             }
+
+            if (__instance.IsRiding())
+            {
+                run = run || ZInput_GetJoyRightStickY_Patch.togglingRun;
+                return;
+            }
+
             if (VHVRConfig.ToggleRun())
             {
                 handleRunToggle(ref run);
             }
             else
             {
-                run = run || ZInput_GetJoyRightStickY_Patch.isRunning;
+                run = run || ZInput_GetJoyRightStickY_Patch.holdingRun;
             }
+            
+            run = run || (VRPlayer.gesturedLocomotionManager?.isRunning?? false);
         }
 
         private static void handleRunToggle(ref bool run)
         {
-            bool runIsTriggered = ZInput_GetJoyRightStickY_Patch.isRunning && !lastUpdateRunInput;
+            bool runIsTriggered = ZInput_GetJoyRightStickY_Patch.togglingRun && !lastUpdateRunInput;
             bool crouchApplied = ZInput_GetJoyRightStickY_Patch.isCrouching;
             if (crouchApplied || !VRPlayer.isMoving || Player.m_localPlayer.m_stamina < 1)
             {
@@ -423,7 +508,7 @@ namespace ValheimVRMod.Patches {
                 runToggledOn = !runToggledOn;
             }
             run = runToggledOn;
-            lastUpdateRunInput = ZInput_GetJoyRightStickY_Patch.isRunning;
+            lastUpdateRunInput = ZInput_GetJoyRightStickY_Patch.togglingRun;
         }
     }
 
@@ -496,7 +581,7 @@ namespace ValheimVRMod.Patches {
         static void handleControllerOnlySneak(Player player, ref bool crouch, bool isCrouchToggled)
         {
             bool crouchToggleTriggered = ZInput_GetJoyRightStickY_Patch.isCrouching && !lastUpdateCrouchInput;
-            bool standupTriggered = ZInput_GetJoyRightStickY_Patch.isRunning;
+            bool standupTriggered = ZInput_GetJoyRightStickY_Patch.hasRunInput;
             if (crouchToggleTriggered)
             {
                 crouch = true;
@@ -541,20 +626,20 @@ namespace ValheimVRMod.Patches {
                     blockHold = true;
                     BowLocalManager.aborting = false;
                 }
-                else if (BowLocalManager.startedPulling) {
+                else if (BowLocalManager.startedPullingArrow) {
                     if (Player.m_localPlayer.GetLeftItem().m_shared.m_attack.m_bowDraw)
                         attack = true;
-                    BowLocalManager.startedPulling = false;
+                    BowLocalManager.startedPullingArrow = false;
                 }
                 else {
                     if (Player.m_localPlayer.GetLeftItem().m_shared.m_attack.m_bowDraw)
                     {
-                        attackHold = BowLocalManager.isPulling;
+                        attackHold = BowLocalManager.isPullingArrow;
                     }
                     else
                     {
                         
-                        if (BowLocalManager.isPulling && SteamVR_Actions.valheim_Use.state && timer >= timeEnd)
+                        if (BowLocalManager.isPullingArrow && SteamVR_Actions.valheim_Use.state && timer >= timeEnd)
                         {
                             timeEnd = 2f;
                             timer = 0f;
@@ -565,7 +650,7 @@ namespace ValheimVRMod.Patches {
                         else
                         {
                             attack = false;
-                            attackHold = false ;
+                            attackHold = false;
                         }
                         var currentAnimatorClip = Player.m_localPlayer.m_animator.GetCurrentAnimatorClipInfo(0)?[0].clip;
                         if (currentAnimatorClip?.name == "Bow Aim Recoil")
@@ -592,6 +677,10 @@ namespace ValheimVRMod.Patches {
             {
                 attack = true;
                 attackHold = true;
+                if (!CrossbowMorphManager.instance.shouldAutoReload)
+                {
+                    CrossbowMorphManager.instance.destroyBolt();
+                }
             }
 
             switch (EquipScript.getRight()) {
@@ -638,7 +727,6 @@ namespace ValheimVRMod.Patches {
                     }
                     break;
 
-
                 case EquipType.RuneSkyheim:
                     if (SteamVR_Actions.valheim_Use.state && SteamVR_Actions.valheim_Grab.state && timer >= timeEnd)
                     {
@@ -662,13 +750,132 @@ namespace ValheimVRMod.Patches {
         }
     }
 
-    
+    [HarmonyPatch(typeof(Player), nameof(Player.StartDoodadControl))]
+    class SadleStartPatch
+    {
+        static void Postfix(Player __instance)
+        {
+            if (VHVRConfig.UseVrControls())
+            {
+                __instance.GetComponent<Reining>()?.SetReinAttach();
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(Sadle), nameof(Sadle.ApplyControlls))]
+    class SadleControlPatch
+    {
+        static void Prefix(ref Vector3 lookDir, ref bool block)
+        {
+            if (VHVRConfig.NonVrPlayer())
+            {
+                return;
+            }
+            if (VHVRConfig.UseVrControls())
+            {
+                block = Reining.turnInPlace;
+            }
+            lookDir =
+                Reining.shouldOverrideSpeedOrDirection ?
+                (Vector3)Reining.targetDirection :
+                Valve.VR.InteractionSystem.Player.instance.hmdTransform.forward; // This makes the mounts try to follow the hmd eyedir
+        }
+    }
+
+    [HarmonyPatch(typeof(Player), "Update")]
+    class PlayerUpdateSadleStayPatch
+    {
+        static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            if (!VHVRConfig.UseVrControls()) {
+                return instructions;
+            }
+
+            var original = new List<CodeInstruction>(instructions);
+            for (int i = 0; i < original.Count; i++)
+            {
+                if (original[i].Calls(MountedAttackUtils.stopDoodadControlMethod))
+                {
+                    // Do not let the player unmount unless jumping.
+                    // This prevents interactions such as range weapon attack from unmounting when riding.
+                    var changed = CodeInstruction.Call(typeof(MountedAttackUtils), nameof(MountedAttackUtils.UnmountIfJumping));
+                    changed.labels = original[i].labels;
+                    original[i] = changed;
+                }
+            }
+            return original;
+        }
+    }
+
+    [HarmonyPatch(typeof(Player), "SetControls")]
+    class PlayerSetControlsSadleStayPatch
+    {
+        static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            if (!VHVRConfig.UseVrControls()) {
+                return instructions;
+            }
+
+            var original = new List<CodeInstruction>(instructions);
+            for (int i = 0; i < original.Count; i++)
+            {
+                if (original[i].Calls(MountedAttackUtils.stopDoodadControlMethod))
+                {
+                    // Do not let the player unmount unless jumping.
+                    // This prevents interactions such as range weapon attack from unmounting when riding.
+                    var changed = CodeInstruction.Call(typeof(MountedAttackUtils), nameof(MountedAttackUtils.UnmountIfJumping));
+                    changed.labels = original[i].labels;
+                    original[i] = changed;
+                }
+            }
+            return original;
+        }
+    }
+
     // Used to make stack splitting easier
     [HarmonyPatch(typeof(InventoryGui), "Awake")]
     class InventoryGui_Awake_Patch {
         static void Prefix(InventoryGui __instance)
         {
+            if (VHVRConfig.NonVrPlayer())
+            {
+                return;
+            }
             __instance.m_splitSlider.gameObject.AddComponent<SliderSelector>();
+        }
+    }
+
+    [HarmonyPatch(typeof(InventoryGui), nameof(InventoryGui.Update))]
+    class InventoryGui_Update_Patch
+    {
+        static bool allowQuickStackAll = true;
+        static void Prefix(InventoryGui __instance)
+        {
+            if (VHVRConfig.NonVrPlayer() || !VHVRConfig.UseVrControls())
+            {
+                return;
+            }
+            if (!__instance.IsContainerOpen())
+            {
+                // When a container is no longer open, reset this flag so that
+                // quick-stack-all can be used next time the player interacts with a container.
+                allowQuickStackAll = true;
+            }
+            else if (SteamVR_Actions.laserPointers_LeftClick.GetStateUp(SteamVR_Input_Sources.Any))
+            {
+                // When a container is open, the GUI is open so laser pointers take priority over valheim_Use.
+                // As the player releases the trigger when the container is open, the button-up state of vaheim_Use is therefore not detected.
+                // The game will mistakenly think that the use button is still being pressed and hold, triggering quick-stack-all inadvertently
+                // so we must patch to prevent that from happening. 
+                // Note: this flag will stay false for the rest of the entire duration when the current container is open
+                // so that dragging item spliiter will not trigger quick-stack-all either.
+                // TODO: try find a way to fix the wrong state of valheim_Use instead of using this ad hoc patch.
+                allowQuickStackAll = false;
+            }
+            if (!allowQuickStackAll || !SteamVR_Actions.laserPointers_LeftClick.GetState(SteamVR_Input_Sources.Any)) {
+                // Quick-stack-all is triggered by holding the use button and resetting this timer disables quick-stack-all.
+                __instance.m_containerHoldTime = 0;
+            }
         }
     }
 
@@ -687,7 +894,32 @@ namespace ValheimVRMod.Patches {
                 mod = InventoryGrid.Modifier.Move;
         }
     }
-    
+
+    [HarmonyPatch(typeof(InventoryGrid), nameof(InventoryGrid.GetHoveredElement))]
+    static class InventoryGrid_GetHoveredElement_Patch
+    {
+        static bool Prefix(InventoryGrid __instance, ref InventoryGrid.Element __result)
+        {
+            if (VHVRConfig.NonVrPlayer())
+            {
+                return true;
+            }
+            foreach (InventoryGrid.Element element in __instance.m_elements)
+            {
+                RectTransform rectTransform = element.m_go.transform as RectTransform;
+                // Use SoftwareCursor.ScaledMouseVector() instead of the vanilla Input.mousePosition to support VR GUI.
+                Vector2 point = rectTransform.InverseTransformPoint(SoftwareCursor.ScaledMouseVector());
+                if (rectTransform.rect.Contains(point))
+                {
+                    __result = element;
+                    return false;
+                }
+            }
+            __result = null;
+            return false;
+        }
+    }
+
     // This patch enables adding map pins without needing to "Double Click".
     // Instead it is triggered using the "click modifier" plus a single left click.
     [HarmonyPatch(typeof(Minimap), nameof(Minimap.OnMapLeftClick))]
@@ -921,7 +1153,7 @@ namespace ValheimVRMod.Patches {
 
             if (__instance.m_queuedDodgeTimer > 0f && __instance.IsOnGround() && !__instance.IsDead() && !__instance.InAttack() && !__instance.IsEncumbered() && !__instance.InDodge() && !__instance.IsStaggering())
             {
-                float num = __instance.m_dodgeStaminaUsage - __instance.m_dodgeStaminaUsage * __instance.m_equipmentMovementModifier;
+                float num = __instance.m_dodgeStaminaUsage - __instance.m_dodgeStaminaUsage * __instance.GetEquipmentDodgeStaminaModifier();
                 if (__instance.HaveStamina(num))
                 {
                     __instance.ClearActionQueue();
@@ -939,7 +1171,7 @@ namespace ValheimVRMod.Patches {
             AnimatorStateInfo currentAnimatorStateInfo = __instance.m_animator.GetCurrentAnimatorStateInfo(0);
             AnimatorStateInfo nextAnimatorStateInfo = __instance.m_animator.GetNextAnimatorStateInfo(0);
             bool flag = __instance.m_animator.IsInTransition(0);
-            bool flag2 = __instance.m_animator.GetBool("dodge") || (currentAnimatorStateInfo.tagHash == Player.m_animatorTagDodge && !flag) || (flag && nextAnimatorStateInfo.tagHash == Player.m_animatorTagDodge);
+            bool flag2 = __instance.m_animator.GetBool("dodge") || (currentAnimatorStateInfo.tagHash == Player.s_animatorTagDodge && !flag) || (flag && nextAnimatorStateInfo.tagHash == Player.s_animatorTagDodge);
             bool value = flag2 && __instance.m_dodgeInvincible;
             __instance.m_nview.GetZDO().Set("dodgeinv", value);
             __instance.m_inDodge = flag2;
@@ -968,4 +1200,3 @@ namespace ValheimVRMod.Patches {
         }
     }
 }
-

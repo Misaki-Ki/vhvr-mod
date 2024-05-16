@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using BepInEx.Configuration;
 using NDesk.Options;
 using Unity.XR.OpenVR;
@@ -16,12 +17,15 @@ namespace ValheimVRMod.Utilities
         private static ConfigEntry<bool> vrModEnabled;
         private static ConfigEntry<bool> nonVrPlayer;
         private static ConfigEntry<bool> useVrControls;
+        private static ConfigEntry<int> maxVRInitializationTries;
         private static ConfigEntry<bool> useOverlayGui;
         private static ConfigEntry<string> pluginVersion;
         private static ConfigEntry<bool> bhapticsEnabled;
+        private static ConfigEntry<bool> showDebugColliders;
 
         // General Settings
         private static ConfigEntry<string> mirrorMode;
+        private static ConfigEntry<float> playerHeightAdjust;
         private static ConfigEntry<float> headOffsetX;
         private static ConfigEntry<float> headOffsetZ;
         private static ConfigEntry<float> headOffsetY;
@@ -90,6 +94,7 @@ namespace ValheimVRMod.Utilities
         // Controls Settings
         private static ConfigEntry<bool> useLookLocomotion;
         private static ConfigEntry<string> dominantHand;
+        private static ConfigEntry<bool> oneHandedBow;
         private static ConfigEntry<KeyCode> headReposFowardKey;
         private static ConfigEntry<KeyCode> headReposBackwardKey;
         private static ConfigEntry<KeyCode> headReposLeftKey;
@@ -104,7 +109,10 @@ namespace ValheimVRMod.Utilities
         private static ConfigEntry<bool> roomScaleSneaking;
         private static ConfigEntry<float> roomScaleSneakHeight;
         private static ConfigEntry<bool> exclusiveRoomScaleSneak;
-        private static ConfigEntry<bool> weaponNeedsSpeed;
+        private static ConfigEntry<string> gesturedLocomotion;
+        private static ConfigEntry<float> gesturedJumpPreparationHeight;
+        private static ConfigEntry<float> gesturedJumpMinSpeed;
+        private static ConfigEntry<float> swingSpeedRequirement;
         private static ConfigEntry<float> altPieceRotationDelay;
         private static ConfigEntry<bool> runIsToggled;
         private static ConfigEntry<bool> viewTurnWithMountedAnimal;
@@ -120,6 +128,7 @@ namespace ValheimVRMod.Utilities
         private static ConfigEntry<float> taaSharpenAmmount;
         private static ConfigEntry<float> nearClipPlane;
         private static ConfigEntry<string> bowGlow;
+        private static ConfigEntry<float> enemyRenderDistance;
 
         // Motion Control Settings
         private static ConfigEntry<bool> useArrowPredictionGraphic;
@@ -149,6 +158,8 @@ namespace ValheimVRMod.Utilities
         private static ConfigEntry<float> DebugRotZ;
         private static ConfigEntry<float> DebugScale;
 #endif
+
+        private static Dictionary<int, bool> commandLineOverrides = new Dictionary<int, bool>();
 
         // Common values
         private static readonly string[] k_HudAlignmentValues = { "LeftWrist", "RightWrist", "CameraLocked", "Legacy" };
@@ -209,51 +220,66 @@ namespace ValheimVRMod.Utilities
 
         private static void InitializeImmutableSettings()
         {
-            vrModEnabled = createImmutableSetting("Immutable",
+            vrModEnabled = createImmutableSettingWithOverride("Immutable",
                 "ModEnabled",
                 true,
                 "Used to toggle the mod on and off.");
-            nonVrPlayer = createImmutableSetting("Immutable",
+            nonVrPlayer = createImmutableSettingWithOverride("Immutable",
                 "nonVrPlayer",
                 false,
-                "Disables VR completely. This is for Non-Vr Players that want to see their Multiplayer companions in VR Bodys");
-            useVrControls = createImmutableSetting("Immutable",
+                "Disables VR completely. This is for Non-Vr Players that want to see their multiplayer VR companions animations in game.");
+            useVrControls = createImmutableSettingWithOverride("Immutable",
                 "UseVRControls",
                 true,
                 "This setting enables the use of the VR motion controllers as input (Only Oculus Touch and Valve Index supported)." +
                 "This setting, if true, will also force UseOverlayGui to be false as this setting Overlay GUI is not compatible with VR laser pointer inputs.");
-            useOverlayGui = createImmutableSetting("Immutable",
+            maxVRInitializationTries = config.Bind("Immutable",
+                "MaxVRInitializationTries",
+                6,
+                new ConfigDescription("The maximum number of attempts at initialization VR before falling back to flatscreen mode",
+                new AcceptableValueRange<int>(1, 1024)));
+
+            useOverlayGui = createImmutableSettingWithOverride("Immutable",
                 "UseOverlayGui",
                 false,
                 "WARNING: Setting this option will result in disabling the game from pausing due to a conflict. " +
                 " Only use this if you are okay with the game not pausing while the menu is active. " +
                 "Whether or not to use OpenVR overlay for the GUI. This produces a" +
                 " cleaner GUI but will only be compatible with M&K or Gamepad controls.");
-            pluginVersion = createImmutableSetting("Immutable",
+            // Do not allow overriding pluginVersion via command line
+            pluginVersion = config.Bind("Immutable",
                 "PluginVersion",
                 "",
                 "For internal use only. Do not edit.");
-            bhapticsEnabled = createImmutableSetting("Immutable",
+            bhapticsEnabled = createImmutableSettingWithOverride("Immutable",
                 "bhapticsEnabled",
                 false,
                 "Enables bhaptics feedback. Only usable if vrModEnabled true AND nonVrPlayer false.");
+            showDebugColliders = createImmutableSettingWithOverride("Immutable",
+                "showDebugColliders",
+                false,
+                "Visualizes motion control colliders (e. g. weapon colliders and block colliders) for debug purposes.");
         }
 
-        private static ConfigEntry<T> createImmutableSetting<T>(
+        private static ConfigEntry<bool> createImmutableSettingWithOverride(
             string section,
             string key,
-            T defaultValue,
+            bool defaultValue,
             string description)
         {
-
-            ConfigEntry<T> immutableSetting = config.Bind(section, key, defaultValue, description);
-
+            ConfigEntry<bool> immutableSetting = config.Bind<bool>(section, key, defaultValue, description);
             // now trying to find same setting in start options and override on match
-
             var p = new OptionSet {
                 { key + "=",
                     "the immutable " + key + " to get the value of",
-                    (T v) => immutableSetting.Value = v }
+                    v => {
+                            LogUtils.LogInfo("Overriding value for mod setting with command line argument: -" + key + "=" + v);
+                            if (bool.TryParse(v, out bool result)) {
+                                commandLineOverrides.Add(immutableSetting.GetHashCode(), result);
+                            } else {
+                                LogUtils.LogError("Invalid boolean string provided for command line option value: " + key + "=" + v);
+                            }
+                        }}
             };
 
             try {
@@ -288,6 +314,13 @@ namespace ValheimVRMod.Utilities
                                      " mirror mode causes some issue that requires SteamVR to be restarted after closing the game, so unless you" +
                                      " need it for some specific reason, I recommend using another mirror mode or None.",
                                      new AcceptableValueList<string>(new string[] { "Right", "Left", "OpenVR", "None" })));
+            playerHeightAdjust = config.Bind("General",
+                              "PlayerHeightAdjust",
+                              0f,
+                              new ConfigDescription("The height difference between the real world player and the game character",
+                              new AcceptableValueRange<float>(-0.25f, 0.25f)));
+
+
             headOffsetX = config.Bind("General",
                                       "FirstPersonHeadOffsetX",
                                       0.0f,
@@ -607,15 +640,39 @@ namespace ValheimVRMod.Utilities
                                           "ExclusiveRoomScaleSneak",
                                           false,
                                           "If this is set to true and Room Scale sneaking is on, Controller-based sneak inputs will be disabled. Use this if you ONLY want to sneak by phsyically crouching.");
+            gesturedLocomotion = config.Bind("Controls",
+                                             "Gestured Locomotion",
+                                             "None",
+                                             new ConfigDescription(
+                                                 "Enables using arm movements to swim, walk, run, and jump",
+                                                 new AcceptableValueList<string>(new string[] { "None", "SwimOnly", "Full" })));
+            gesturedJumpPreparationHeight = config.Bind("Controls",
+                                          "GesturedJumpPreparationHeight",
+                                          0.95f,
+                                          new ConfigDescription("The max height you need to squat at to jump",
+                                           new AcceptableValueRange<float>(0.25f, 1f)));
+            gesturedJumpMinSpeed = config.Bind("Controls",
+                                          "GesturedJumpMinSpeed",
+                                          0.75f,
+                                          new ConfigDescription("The minimum vertical head speed to trigger a jump",
+                                          new AcceptableValueRange<float>(0.25f, 3f)));
             dominantHand = config.Bind("Controls",
                                         "DominantHand",
                                         "Right",
                                         new ConfigDescription("The dominant hand of the player",
                                         new AcceptableValueList<string>(new string[] { "Right", "Left" })));
-            weaponNeedsSpeed = config.Bind("Controls",
-                "SwingWeapons",
-                true,
-                "Defines if Swinging a Weapon needs certain speed. if set to false, single touch will already trigger hit");
+            // TODO: consider having this override crossbowManualReload.
+            oneHandedBow = config.Bind(
+                "Controls",
+                "OneHandedBow",
+                false,
+                "Accessibility feature that allows operating bows and crossbows with the dominant hand alone");
+            swingSpeedRequirement =
+                config.Bind(
+                    "Controls", "SwingSpeedRequirement", 1f,
+                    new ConfigDescription(
+                        "The speed requirement level on weapon swinging for an attack to be triggered. if set to 0, single touch will already trigger hit",
+                        new AcceptableValueRange<float>(0, 1f)));
             altPieceRotationDelay = config.Bind("Controls",
                                                 "AltPieceRotationDelay",
                                                 1f,
@@ -692,6 +749,11 @@ namespace ValheimVRMod.Utilities
                                   new ConfigDescription(
                                       "Whether the glowing effect of the bow (if any in the Vanilla game) should be enabled. Disable it if you find the glow affects you aim negatively.",
                                       new AcceptableValueList<string>(new string[] {"None", "LightWithoutParticles", "Full"})));
+            enemyRenderDistance = config.Bind("Graphics",
+                                        "EnemyRenderDistance",
+                                        8f,
+                                        new ConfigDescription("Increase the mobs render distance, does not apply to tamed creature, only raise mob render distance, not lowering them (default eg. deer render distance is around 2, neck is around 10) (also limited by default ingame draw distance option)",
+                                        new AcceptableValueRange<float>(1f, 50f)));
 
         }
 
@@ -810,40 +872,52 @@ namespace ValheimVRMod.Utilities
                                          "BuildAngleSnap",
                                          "26, 22.5, 10, 5, 2.5, 1, 0.5, 0.1, 0.05, 0.01",
                                          "List of Build angle snap for advance rotation mode");
-            // #if DEBUG
-            //             DebugPosX = config.Bind("Motion Control",
-            //                 "DebugPosX",
-            //                 0.0f,
-            //                 "DebugPosX");
-            //             DebugPosY = config.Bind("Motion Control",
-            //                 "DebugPosY",
-            //                 0.0f,
-            //                 "DebugPosY");
-            //             DebugPosZ = config.Bind("Motion Control",
-            //                 "DebugPosZ",
-            //                 0.0f,
-            //                 "DebugPosZ");
-            //             DebugRotX = config.Bind("Motion Control",
-            //                 "DebugRotX",
-            //                 0.0f,
-            //                 "DebugRotX");
-            //             DebugRotY = config.Bind("Motion Control",
-            //                 "DebugRotY",
-            //                 0.0f,
-            //                 "DebugRotY");
-            //             DebugRotZ = config.Bind("Motion Control",
-            //                 "DebugRotZ",
-            //                 0.0f,
-            //                 "DebugRotZ");
-            //             DebugScale = config.Bind("Motion Control",
-            //                 "DebugScale",
-            //                 1.0f,
-            //                 "DebugScale");
-            // #endif
+            
+            #if DEBUG
+            DebugPosX = config.Bind("Motion Control",
+                "DebugPosX",
+                0.0f,
+                new ConfigDescription("DebugPosX",
+                    new AcceptableValueRange<float>(-1.0f, 1.0f)));
+            DebugPosY = config.Bind("Motion Control",
+                "DebugPosY",
+                0.0f,
+                new ConfigDescription("DebugPosY",
+                    new AcceptableValueRange<float>(-1.0f, 1.0f)));
+            DebugPosZ = config.Bind("Motion Control",
+                "DebugPosZ",
+                0.0f,
+                new ConfigDescription("DebugPosZ",
+                    new AcceptableValueRange<float>(-1.0f, 1.0f)));
+            DebugRotX = config.Bind("Motion Control",
+                "DebugRotX",
+                0.0f,
+                new ConfigDescription("DebugRotX",
+                    new AcceptableValueRange<float>(-1.0f, 1.0f)));
+            DebugRotY = config.Bind("Motion Control",
+                "DebugRotY",
+                0.0f,
+                new ConfigDescription("DebugRotY",
+                    new AcceptableValueRange<float>(-1.0f, 1.0f)));
+            DebugRotZ = config.Bind("Motion Control",
+                "DebugRotZ",
+                0.0f,
+                new ConfigDescription("DebugRotZ",
+                    new AcceptableValueRange<float>(-1.0f, 1.0f)));
+            DebugScale = config.Bind("Motion Control",
+                "DebugScale",
+                1.0f,
+                new ConfigDescription("DebugScale",
+                    new AcceptableValueRange<float>(0.0f, 2.0f)));
+            #endif
         }
 
         public static bool ModEnabled()
         {
+            if (commandLineOverrides.ContainsKey(vrModEnabled.GetHashCode()))
+            {
+                return commandLineOverrides[vrModEnabled.GetHashCode()];
+            }
             return vrModEnabled.Value;
         }
 
@@ -875,10 +949,20 @@ namespace ValheimVRMod.Utilities
             }
         }
 
+        public static float PlayerHeightAdjust()
+        {
+            return playerHeightAdjust.Value;
+        }
+
         public static bool GetUseOverlayGui()
         {
+            bool useOverlayGuiValue = useOverlayGui.Value;
+            if (commandLineOverrides.ContainsKey(useOverlayGui.GetHashCode()))
+            {
+                useOverlayGuiValue = commandLineOverrides[useOverlayGui.GetHashCode()];
+            }
             // Force this to be off if UseVrControls is on
-            return useOverlayGui.Value && !UseVrControls();
+            return useOverlayGuiValue && !UseVrControls();
         }
 
         public static float GetOverlayWidth()
@@ -1077,7 +1161,17 @@ namespace ValheimVRMod.Utilities
 
         public static bool UseVrControls()
         {
-            return useVrControls.Value && !NonVrPlayer();
+            bool useVrControlsValue = useVrControls.Value;
+            if (commandLineOverrides.ContainsKey(useVrControls.GetHashCode()))
+            {
+                useVrControlsValue = commandLineOverrides[useVrControls.GetHashCode()];
+            }
+            return useVrControlsValue && !NonVrPlayer();
+        }
+
+        public static int MaxVRInitializationTries()
+        {
+            return maxVRInitializationTries.Value;
         }
 
         public static bool UseArrowPredictionGraphic()
@@ -1109,11 +1203,15 @@ namespace ValheimVRMod.Utilities
 
         public static bool NonVrPlayer()
         {
-#if NONVRMODE
-            return true;
-#else
+            if (ValheimVRMod.failedToInitializeVR)
+            {
+                return true;
+            }
+            if (commandLineOverrides.ContainsKey(nonVrPlayer.GetHashCode()))
+            {
+                return commandLineOverrides[nonVrPlayer.GetHashCode()];
+            }
             return nonVrPlayer.Value;
-#endif
         }
 
 #if DEBUG
@@ -1170,9 +1268,9 @@ namespace ValheimVRMod.Utilities
             return Mathf.Abs(smoothSnapSpeed.Value);
         }
 
-        public static bool WeaponNeedsSpeed()
+        public static float SwingSpeedRequirement()
         {
-            return weaponNeedsSpeed.Value;
+            return swingSpeedRequirement.Value;
         }
 
         public static bool RoomScaleSneakEnabled() {
@@ -1188,9 +1286,39 @@ namespace ValheimVRMod.Utilities
             return exclusiveRoomScaleSneak.Value;
         }
 
+        public static bool IsGesturedSwimEnabled()
+        {
+            return gesturedLocomotion.Value == "Full" || gesturedLocomotion.Value == "SwimOnly";
+        }
+
+        public static bool IsGesturedJumpEnabled()
+        {
+            return gesturedLocomotion.Value == "Full";
+        }
+
+        public static bool IsGesturedWalkRunEnabled()
+        {
+            return gesturedLocomotion.Value == "Full";
+        }
+
+        public static float GesturedJumpPreparationHeight()
+        {
+            return gesturedJumpPreparationHeight.Value;
+        }
+
+        public static float GesturedJumpMinSpeed()
+        {
+            return gesturedJumpMinSpeed.Value;
+        }
+
         public static float GetNearClipPlane()
         {
             return nearClipPlane.Value;
+        }
+
+        public static float GetEnemyRenderDistanceValue()
+        {
+            return enemyRenderDistance.Value;
         }
 
         public static float AltPieceRotationDelay()
@@ -1206,6 +1334,11 @@ namespace ValheimVRMod.Utilities
         public static bool LeftHanded()
         {
             return GetPreferredHand() == VRPlayer.LEFT_HAND;
+        }
+
+        public static bool OneHandedBow()
+        {
+            return oneHandedBow.Value;
         }
 
         public static bool ViewTurnWithMountedAnimal()
@@ -1450,7 +1583,25 @@ namespace ValheimVRMod.Utilities
 
         public static bool BhapticsEnabled()
         {
-            return bhapticsEnabled.Value && !NonVrPlayer();
+            bool bhapticsEnabledValue = bhapticsEnabled.Value;
+            if (commandLineOverrides.ContainsKey(bhapticsEnabled.GetHashCode()))
+            {
+                bhapticsEnabledValue = commandLineOverrides[bhapticsEnabled.GetHashCode()];
+            }
+            return bhapticsEnabledValue && !NonVrPlayer();
+        }
+
+        public static bool ShowDebugColliders()
+        {
+            if (!UseVrControls())
+            {
+                return false;
+            }
+            if (commandLineOverrides.ContainsKey(showDebugColliders.GetHashCode()))
+            {
+                return commandLineOverrides[showDebugColliders.GetHashCode()];
+            }
+            return showDebugColliders.Value;
         }
 
         public static bool BowAccuracyIgnoresDrawLength()
